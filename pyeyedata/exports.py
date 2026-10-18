@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Callable, Literal, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -28,6 +28,8 @@ from pyeyedata.gui.models import RunRecord
 ExportFormat = Literal["csv", "xlsx"]
 SelectionScope = Literal["full", "filtered", "selected"]
 XlsxOverflow = Literal["reject", "split_sheets"]
+CancelCallback = Callable[[], bool]
+ProgressCallback = Callable[[float, str], None]
 
 XLSX_MAX_ROWS = 1_048_576  # Includes the header row.
 XLSX_MAX_COLUMNS = 16_384
@@ -66,6 +68,21 @@ class ExportIdentityError(ExportError):
 
 class ExportLimitError(ExportError):
     """An output limit would be exceeded without an explicit representation."""
+
+
+class ExportCancelled(InterruptedError):
+    """Cooperative cancellation before output promotion; prior files are intact."""
+
+
+def _export_checkpoint(cancel: CancelCallback | None = None,
+                       progress: ProgressCallback | None = None,
+                       fraction: float = 0.0, message: str = "") -> None:
+    if cancel is not None and cancel():
+        raise ExportCancelled("export cancelled before commit")
+    if progress is not None:
+        progress(fraction, message)
+    if cancel is not None and cancel():
+        raise ExportCancelled("export cancelled before commit")
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +137,11 @@ class ExportResult:
     formula_like_text_cells: int
     long_text_cells: int
     worksheet_names: tuple[str, ...]
+
+    @property
+    def commit_complete(self) -> bool:
+        """This receipt is returned only after the entire output group commits."""
+        return True
 
 
 def _missing(value: Any) -> bool:
@@ -206,7 +228,7 @@ def source_row_identity(frame: pd.DataFrame, row_position: int) -> str:
     return hashlib.sha256(packed.encode("utf-8")).hexdigest()
 
 
-def _table_fingerprint(frame: pd.DataFrame) -> str:
+def _table_fingerprint(frame: pd.DataFrame, *, cancel: CancelCallback | None = None) -> str:
     digest = hashlib.sha256()
     header = {
         "columns": [str(item) for item in frame.columns],
@@ -217,6 +239,7 @@ def _table_fingerprint(frame: pd.DataFrame) -> str:
     digest.update(json.dumps(header, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
     digest.update(b"\n")
     for index, row in zip(frame.index, frame.itertuples(index=False, name=None)):
+        _export_checkpoint(cancel)
         packed = json.dumps([_safe_value(index), *(_safe_value(value) for value in row)],
                             ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
         digest.update(packed.encode("utf-8"))
@@ -305,7 +328,9 @@ def create_table_export_request(
     )
 
 
-def _verify_request(record: RunRecord, request: TableExportRequest) -> pd.DataFrame:
+def _verify_request(record: RunRecord, request: TableExportRequest, *,
+                    cancel: CancelCallback | None = None) -> pd.DataFrame:
+    _export_checkpoint(cancel)
     if (str(record.run_id), str(record.revision_id), str(record.config_fingerprint)) != (
         request.run_id, request.revision_id, request.config_fingerprint
     ):
@@ -313,13 +338,16 @@ def _verify_request(record: RunRecord, request: TableExportRequest) -> pd.DataFr
     if request.table_name not in record.table_names():
         raise ExportIdentityError(f"run {record.run_id!r} no longer contains {request.table_name!r}")
     frame = record.table_copy(request.table_name)
-    if _table_fingerprint(frame) != request.table_fingerprint:
+    if _table_fingerprint(frame, cancel=cancel) != request.table_fingerprint:
         raise ExportIdentityError("source table changed after export selection was captured")
     if request.scope != "full":
         if len(request.source_positions) != len(request.source_row_ids):
             raise ExportIdentityError("captured source positions and row identities have different lengths")
-        current = tuple(source_row_identity(frame, position) for position in request.source_positions)
-        if current != request.source_row_ids:
+        current = []
+        for position in request.source_positions:
+            _export_checkpoint(cancel)
+            current.append(source_row_identity(frame, position))
+        if tuple(current) != request.source_row_ids:
             raise ExportIdentityError("selected row identities no longer match the immutable source table")
     return frame
 
@@ -540,6 +568,9 @@ def _write_csv(
     csv_temp: Path,
     audit: dict[str, Any],
     reference_temp: Path | None,
+    *,
+    cancel: CancelCallback | None = None,
+    progress: ProgressCallback | None = None,
 ) -> tuple[int, int]:
     positions = _selection_positions(request, frame)
     formula_cells: list[dict[str, Any]] = []
@@ -562,6 +593,8 @@ def _write_csv(
         writer.writerow(exported_headers)
         audit["csv_header_mapping"] = header_mapping
         for source_position, row_id, values in _iter_output_rows(frame, positions, columns):
+            _export_checkpoint(cancel, progress if rows_written % 128 == 0 else None,
+                               0.1 + 0.6 * rows_written / max(1, len(positions)), "正在写入 CSV 行")
             output: list[Any] = []
             for column, value in zip(columns, values):
                 cell_text = _to_text(value)
@@ -581,14 +614,16 @@ def _write_csv(
     if reference_temp is not None:
         with reference_temp.open("w", encoding="utf-8", newline="\n") as stream:
             for reference_name in request.reference_tables:
+                _export_checkpoint(cancel, progress, 0.75, "正在写入关联表")
                 reference_frame = record.table_copy(reference_name)
                 stream.write(json.dumps({
                     "kind": "named_table", "name": reference_name, "row_count": len(reference_frame),
                     "schema": [{"name": str(column), "dtype": str(dtype)}
                                for column, dtype in zip(reference_frame.columns, reference_frame.dtypes)],
-                    "table_fingerprint": _table_fingerprint(reference_frame),
+                    "table_fingerprint": _table_fingerprint(reference_frame, cancel=cancel),
                 }, ensure_ascii=False, sort_keys=True, allow_nan=False, default=str) + "\n")
                 for position, row in enumerate(reference_frame.itertuples(index=False, name=None)):
+                    _export_checkpoint(cancel)
                     stream.write(json.dumps({
                         "kind": "row", "table": reference_name, "source_position": position,
                         "values": [_typed_reference_value(value) for value in row],
@@ -642,15 +677,18 @@ def _safe_sheet_name(raw: str, used: set[str]) -> str:
     return name
 
 
-def _append_metadata_sheet(ws: Any, metadata: Mapping[str, Any]) -> None:
+def _append_metadata_sheet(ws: Any, metadata: Mapping[str, Any], *,
+                           cancel: CancelCallback | None = None) -> None:
     ws.append([_write_excel_cell(ws, value) for value in ("field", "value_json")])
     for key, value in metadata.items():
+        _export_checkpoint(cancel)
         text = json.dumps(_safe_value(value), ensure_ascii=False, sort_keys=True, default=str)
         if len(text) <= XLSX_MAX_CELL_TEXT:
             ws.append([_write_excel_cell(ws, str(key)), _write_excel_cell(ws, text)])
         else:
             parts = [text[index:index + _LONG_TEXT_CHUNK] for index in range(0, len(text), _LONG_TEXT_CHUNK)]
             for part_index, part in enumerate(parts, 1):
+                _export_checkpoint(cancel)
                 ws.append([_write_excel_cell(ws, f"{key} (part {part_index}/{len(parts)})"),
                            _write_excel_cell(ws, part)])
 
@@ -666,6 +704,8 @@ def _append_frame_to_xlsx(
     table_fingerprint: str,
     row_id_frame: pd.DataFrame | None = None,
     source_positions: Sequence[int] | range | None = None,
+    cancel: CancelCallback | None = None,
+    progress: ProgressCallback | None = None,
 ) -> tuple[list[str], int, int]:
     if frame.shape[1] > XLSX_MAX_COLUMNS:
         raise ExportLimitError(f"{table_name} has {frame.shape[1]:,} columns; Excel supports at most {XLSX_MAX_COLUMNS:,}.")
@@ -676,6 +716,8 @@ def _append_frame_to_xlsx(
     for part_index in range(num_sheets):
         start = part_index * _XLSX_DATA_ROWS
         stop = min(len(frame), start + _XLSX_DATA_ROWS)
+        _export_checkpoint(cancel, progress, 0.2 + 0.4 * start / max(1, len(frame)),
+                           "正在创建 XLSX 工作表")
         raw_sheet = table_name if part_index == 0 else f"{table_name}_{part_index + 1}"
         ws = wb.create_sheet(_safe_sheet_name(raw_sheet, used_names))
         sheet_names.append(ws.title)
@@ -702,6 +744,8 @@ def _append_frame_to_xlsx(
         for col_num, header in enumerate(headers, 1):
             ws.column_dimensions[_column_letter(col_num)].width = min(max(len(header) + 2, 10), 48)
         for row_position in range(start, stop):
+            _export_checkpoint(cancel, progress if row_position % 128 == 0 else None,
+                               0.2 + 0.4 * row_position / max(1, len(frame)), "正在写入 XLSX 行")
             values = frame.iloc[row_position]
             source_position = (int(source_positions[row_position])
                                if source_positions is not None else row_position)
@@ -716,6 +760,7 @@ def _append_frame_to_xlsx(
                     chunks = [value[index:index + _LONG_TEXT_CHUNK]
                               for index in range(0, len(value), _LONG_TEXT_CHUNK)]
                     for chunk_index, chunk in enumerate(chunks, 1):
+                        _export_checkpoint(cancel)
                         long_text_ws.append([
                             _write_excel_cell(long_text_ws, reference),
                             _write_excel_cell(long_text_ws, table_name),
@@ -755,6 +800,9 @@ def _write_xlsx(
     columns: tuple[str, ...],
     temp_path: Path,
     audit: dict[str, Any],
+    *,
+    cancel: CancelCallback | None = None,
+    progress: ProgressCallback | None = None,
 ) -> tuple[int, int, int, tuple[str, ...]]:
     from openpyxl import Workbook
 
@@ -774,6 +822,7 @@ def _write_xlsx(
             "the schema header cannot be split without changing its meaning."
         )
     for reference_name in request.reference_tables:
+        _export_checkpoint(cancel)
         reference_frame = record.table_copy(reference_name)
         if reference_frame.shape[1] > XLSX_MAX_COLUMNS:
             raise ExportLimitError(
@@ -788,63 +837,83 @@ def _write_xlsx(
                 "the schema header cannot be split without changing its meaning."
             )
     wb = Workbook(write_only=True)
-    used_names: set[str] = set()
-    meta_ws = wb.create_sheet(_safe_sheet_name("export_meta", used_names))
-    formula_ws = wb.create_sheet(_safe_sheet_name("formula_audit", used_names))
-    formula_ws.append([_write_excel_cell(formula_ws, value) for value in
-                       ("table", "source_position", "source_row_id", "column", "storage_policy")])
-    long_ws = wb.create_sheet(_safe_sheet_name("LongText", used_names))
-    long_ws.append([_write_excel_cell(long_ws, value) for value in
-                    ("reference", "table", "source_position", "source_row_id", "column", "part", "parts", "text")])
+    try:
+        used_names: set[str] = set()
+        meta_ws = wb.create_sheet(_safe_sheet_name("export_meta", used_names))
+        formula_ws = wb.create_sheet(_safe_sheet_name("formula_audit", used_names))
+        formula_ws.append([_write_excel_cell(formula_ws, value) for value in
+                           ("table", "source_position", "source_row_id", "column", "storage_policy")])
+        long_ws = wb.create_sheet(_safe_sheet_name("LongText", used_names))
+        long_ws.append([_write_excel_cell(long_ws, value) for value in
+                        ("reference", "table", "source_position", "source_row_id", "column", "part", "parts", "text")])
 
-    main_sheets: list[str] = []
-    formula_count = 0
-    long_count = 0
-    positions = _selection_positions(request, frame)
-    selected_positions = range(len(frame)) if request.scope == "full" else request.source_positions
-    selected_frame = frame if request.scope == "full" else frame.iloc[list(selected_positions)].copy(deep=True)
-    # Preserve request order for row subsets while retaining original row positions in metadata.
-    by_name = {str(column): column for column in frame.columns}
-    selected_columns = [by_name[column] for column in columns]
-    selected_frame = selected_frame.loc[:, selected_columns]
-    main_sheet_names, main_formula_count, main_long_count = _append_frame_to_xlsx(
-        wb, selected_frame, request.table_name, used_names=used_names,
-        long_text_ws=long_ws, formula_audit_ws=formula_ws,
-        table_fingerprint=request.table_fingerprint, row_id_frame=frame,
-        source_positions=selected_positions if request.scope != "full" else None,
-    )
-    main_sheets.extend(main_sheet_names)
-    formula_count += main_formula_count
-    long_count += main_long_count
-
-    reference_sheet_names: list[str] = []
-    for reference_name in request.reference_tables:
-        reference_frame = record.table_copy(reference_name)
-        ref_sheets, ref_formula, ref_long = _append_frame_to_xlsx(
-            wb, reference_frame, reference_name, used_names=used_names,
+        main_sheets: list[str] = []
+        formula_count = 0
+        long_count = 0
+        positions = _selection_positions(request, frame)
+        selected_positions = range(len(frame)) if request.scope == "full" else request.source_positions
+        selected_frame = frame if request.scope == "full" else frame.iloc[list(selected_positions)].copy(deep=True)
+        # Preserve request order for row subsets while retaining original row positions in metadata.
+        by_name = {str(column): column for column in frame.columns}
+        selected_columns = [by_name[column] for column in columns]
+        selected_frame = selected_frame.loc[:, selected_columns]
+        main_sheet_names, main_formula_count, main_long_count = _append_frame_to_xlsx(
+            wb, selected_frame, request.table_name, used_names=used_names,
             long_text_ws=long_ws, formula_audit_ws=formula_ws,
-            table_fingerprint=_table_fingerprint(reference_frame),
+            table_fingerprint=request.table_fingerprint, row_id_frame=frame,
+            source_positions=selected_positions if request.scope != "full" else None,
+            cancel=cancel, progress=progress,
         )
-        reference_sheet_names.extend(ref_sheets)
-        formula_count += ref_formula
-        long_count += ref_long
+        main_sheets.extend(main_sheet_names)
+        formula_count += main_formula_count
+        long_count += main_long_count
 
-    audit["xlsx_formula_like_text_cells"] = formula_count
-    audit["xlsx_long_text_cells_spilled"] = long_count
-    audit["xlsx_sheet_names"] = [*main_sheets, *reference_sheet_names, meta_ws.title,
-                                formula_ws.title, long_ws.title]
-    audit["xlsx_long_text_policy"] = "Over-limit strings are split without truncation in the named LongText worksheet; source cells contain a stable reference."
-    audit["xlsx_reference_policy"] = "Each requested named reference table is exported to its own worksheet(s) with the original schema."
-    _append_metadata_sheet(meta_ws, audit)
-    wb.save(temp_path)
-    rows_written = len(positions)
-    return rows_written, formula_count, long_count, tuple(audit["xlsx_sheet_names"])
+        reference_sheet_names: list[str] = []
+        for reference_name in request.reference_tables:
+            _export_checkpoint(cancel, progress, 0.65, "正在写入 XLSX 关联表")
+            reference_frame = record.table_copy(reference_name)
+            ref_sheets, ref_formula, ref_long = _append_frame_to_xlsx(
+                wb, reference_frame, reference_name, used_names=used_names,
+                long_text_ws=long_ws, formula_audit_ws=formula_ws,
+                table_fingerprint=_table_fingerprint(reference_frame, cancel=cancel),
+                cancel=cancel,
+            )
+            reference_sheet_names.extend(ref_sheets)
+            formula_count += ref_formula
+            long_count += ref_long
+
+        audit["xlsx_formula_like_text_cells"] = formula_count
+        audit["xlsx_long_text_cells_spilled"] = long_count
+        audit["xlsx_sheet_names"] = [*main_sheets, *reference_sheet_names, meta_ws.title,
+                                    formula_ws.title, long_ws.title]
+        audit["xlsx_long_text_policy"] = "Over-limit strings are split without truncation in the named LongText worksheet; source cells contain a stable reference."
+        audit["xlsx_reference_policy"] = "Each requested named reference table is exported to its own worksheet(s) with the original schema."
+        _append_metadata_sheet(meta_ws, audit, cancel=cancel)
+        _export_checkpoint(cancel, progress, 0.8, "正在保存 XLSX；取消将等待当前保存结束")
+        wb.save(temp_path)
+        _export_checkpoint(cancel)
+        rows_written = len(positions)
+        return rows_written, formula_count, long_count, tuple(audit["xlsx_sheet_names"])
+    finally:
+        # Streaming worksheets own open XML generators and temporary XML files.
+        # openpyxl only removes these on successful save; cancellation must also
+        # close them. These paths are library-owned staging, never user outputs.
+        for worksheet in wb.worksheets:
+            try:
+                if not worksheet.closed:
+                    worksheet.close()
+            finally:
+                writer = worksheet._writer
+                if writer is not None and os.path.exists(writer.out):
+                    writer.cleanup()
+        wb.close()
 
 
-def _sha256(path: Path) -> str:
+def _sha256(path: Path, *, cancel: CancelCallback | None = None) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
+            _export_checkpoint(cancel)
             digest.update(block)
     return digest.hexdigest()
 
@@ -910,9 +979,16 @@ def _commit_output_group(staged: Sequence[tuple[Path, Path]], *, overwrite: bool
         raise
 
 
-def export_table(record: RunRecord, request: TableExportRequest) -> ExportResult:
-    """Export CSV or streaming XLSX from a verified immutable RunRecord."""
-    frame = _verify_request(record, request)
+def export_table(record: RunRecord, request: TableExportRequest, *,
+                 cancel: CancelCallback | None = None,
+                 progress: ProgressCallback | None = None) -> ExportResult:
+    """Export stored values; cancel is a zero-argument predicate checked before commit.
+
+    Progress receives (fraction, message). Promotion/rollback is non-interruptible;
+    a returned receipt always represents committed output, even after late cancel.
+    """
+    _export_checkpoint(cancel, progress, 0.0, "正在核对导出内容")
+    frame = _verify_request(record, request, cancel=cancel)
     columns, review_columns = _output_columns(frame, request.columns)
     destination = Path(request.destination)
     audit_path = destination.with_suffix(destination.suffix + ".audit.json")
@@ -936,17 +1012,20 @@ def export_table(record: RunRecord, request: TableExportRequest) -> ExportResult
         if request.file_format == "csv":
             rows_written, formula_count = _write_csv(
                 record, request, frame, columns, csv_temp, audit, reference_temp,
+                cancel=cancel, progress=progress,
             )
             audit["formula_like_text_cell_count"] = formula_count
             audit["references_sidecar"] = str(references_path) if references_path else None
         else:
             rows_written, formula_count, long_count, sheet_names = _write_xlsx(
                 record, request, frame, columns, csv_temp, audit,
+                cancel=cancel, progress=progress,
             )
             audit["worksheet_names"] = list(sheet_names)
             audit["formula_like_text_cell_count"] = formula_count
             audit["long_text_cells_spilled"] = long_count
-        audit["output_sha256"] = _sha256(csv_temp)
+        _export_checkpoint(cancel, progress, 0.9, "正在生成导出审计")
+        audit["output_sha256"] = _sha256(csv_temp, cancel=cancel)
         _write_json_temp(audit_temp, audit)
         if not request.overwrite:
             # Recheck immediately before promotion to avoid silently clobbering a concurrent file.
@@ -957,6 +1036,7 @@ def export_table(record: RunRecord, request: TableExportRequest) -> ExportResult
         if reference_temp is not None and references_path is not None:
             staged.append((references_path, reference_temp))
         staged.extend([(audit_path, audit_temp), (destination, csv_temp)])
+        _export_checkpoint(cancel, progress, 0.98, "正在提交导出文件")
         _commit_output_group(staged, overwrite=request.overwrite)
     except Exception:
         for temp in (csv_temp, audit_temp, reference_temp):
@@ -967,13 +1047,13 @@ def export_table(record: RunRecord, request: TableExportRequest) -> ExportResult
                     pass
         raise
     return ExportResult(
-        destination, audit_path, references_path, _sha256(destination), rows_written,
+        destination, audit_path, references_path, audit["output_sha256"], rows_written,
         columns, formula_count, long_count, sheet_names,
     )
 
 
 __all__ = [
-    "ExportError", "ExportIdentityError", "ExportLimitError", "ExportPreview", "ExportResult",
+    "ExportCancelled", "ExportError", "ExportIdentityError", "ExportLimitError", "ExportPreview", "ExportResult",
     "TableExportRequest", "create_table_export_request", "export_table", "preview_table_export",
     "source_row_identity",
 ]

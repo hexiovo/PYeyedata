@@ -23,7 +23,9 @@ import numpy as np
 import pandas as pd
 
 from pyeyedata.gui.models import RunRecord
-from pyeyedata.exports import _missing, _safe_value, _to_text
+from pyeyedata.exports import (
+    CancelCallback, ProgressCallback, _export_checkpoint, _missing, _safe_value, _to_text,
+)
 
 
 FigureKind = Literal["scatter", "interval"]
@@ -152,6 +154,11 @@ class ReportResult:
     path: Path
     sha256: str
     byte_length: int
+
+    @property
+    def commit_complete(self) -> bool:
+        """A returned report receipt means its target was atomically replaced."""
+        return True
 
 
 def create_figure_spec(
@@ -604,7 +611,8 @@ def render_existing_figure_artifact(
     )
 
 
-def _report_tables(record: RunRecord, request: ReportRequest, reportlab_font: str):
+def _report_tables(record: RunRecord, request: ReportRequest, reportlab_font: str, *,
+                   cancel: CancelCallback | None = None):
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
@@ -631,6 +639,7 @@ def _report_tables(record: RunRecord, request: ReportRequest, reportlab_font: st
         )
 
     for table_name in request.table_names:
+        _export_checkpoint(cancel)
         if table_name not in record.table_names():
             story.append(Paragraph(f"结果表 {html.escape(table_name)} 不在此 RunRecord 中，未生成占位数据。", body))
             continue
@@ -658,6 +667,7 @@ def _report_tables(record: RunRecord, request: ReportRequest, reportlab_font: st
         positions = range(displayed)
         abbreviated_cells = 0
         for group_index, columns in enumerate(groups, 1):
+            _export_checkpoint(cancel)
             if len(groups) > 1:
                 group_heading = Paragraph(f"列组 {group_index}/{len(groups)} · 保留源列顺序", small)
                 group_heading.keepWithNext = True
@@ -669,6 +679,7 @@ def _report_tables(record: RunRecord, request: ReportRequest, reportlab_font: st
                 header_cells.append(Paragraph(html.escape(displayed_column), header))
             data = [header_cells]
             for position in positions:
+                _export_checkpoint(cancel)
                 row = frame.iloc[position]
                 rendered_cells: list[Any] = []
                 for column in columns:
@@ -771,7 +782,9 @@ def _verify_report_request(record: RunRecord, request: ReportRequest) -> None:
 
 
 def _build_report_pdf(record: RunRecord, request: ReportRequest, font: Mapping[str, Any],
-                      figure_pngs: Sequence[tuple[str, bytes]], omissions: Sequence[str] = ()) -> bytes:
+                      figure_pngs: Sequence[tuple[str, bytes]], omissions: Sequence[str] = (), *,
+                      cancel: CancelCallback | None = None,
+                      progress: ProgressCallback | None = None) -> bytes:
     from reportlab.lib import colors
     from reportlab.lib.enums import TA_CENTER
     from reportlab.lib.pagesizes import A4, landscape
@@ -779,6 +792,7 @@ def _build_report_pdf(record: RunRecord, request: ReportRequest, font: Mapping[s
     from reportlab.lib.units import mm
     from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+    _export_checkpoint(cancel, progress, 0.45, "正在排版 PDF 报告")
     _verify_report_request(record, request)
     buffer = io.BytesIO()
     status = _record_status(record)
@@ -863,6 +877,7 @@ def _build_report_pdf(record: RunRecord, request: ReportRequest, font: Mapping[s
         story.append(Paragraph("运行记录没有提供可展示的参数/方法字段；本报告未补推默认参数。", body))
 
     for figure_index, (figure_title, png_data) in enumerate(figure_pngs):
+        _export_checkpoint(cancel)
         figure_story: list[Any] = []
         if figure_index == 0:
             figure_story.append(Paragraph("实际结果图", heading))
@@ -880,11 +895,12 @@ def _build_report_pdf(record: RunRecord, request: ReportRequest, font: Mapping[s
     story.append(Paragraph("结果表与统计审计", heading))
     if not request.table_names:
         story.append(Paragraph("本报告未选择结果表。所有表名：" + html.escape(", ".join(record.table_names())), body))
-    story.extend(_report_tables(record, request, font["reportlab_name"]))
+    story.extend(_report_tables(record, request, font["reportlab_name"], cancel=cancel))
     if record.logs():
         story.append(Paragraph("运行日志", heading))
         shown = list(record.logs()[-80:])
         for line in shown:
+            _export_checkpoint(cancel)
             story.append(Paragraph(html.escape(str(line)), small))
         if len(record.logs()) > len(shown):
             story.append(Paragraph(
@@ -906,20 +922,27 @@ def _build_report_pdf(record: RunRecord, request: ReportRequest, font: Mapping[s
         canvas.drawRightString(A4[0] - 16 * mm, 10 * mm, f"第 {canvas.getPageNumber()} 页")
         canvas.restoreState()
 
+    _export_checkpoint(cancel, progress, 0.7, "正在生成 PDF；取消将等待当前生成结束")
     doc.build(story, onFirstPage=draw_page, onLaterPages=draw_page)
+    _export_checkpoint(cancel)
     return buffer.getvalue()
 
 
-def build_analysis_report_bytes(record: RunRecord, request: ReportRequest | None = None) -> bytes:
-    """Render a paginated PDF with the C03 licensed font held through PDF generation."""
+def build_analysis_report_bytes(record: RunRecord, request: ReportRequest | None = None, *,
+                                cancel: CancelCallback | None = None,
+                                progress: ProgressCallback | None = None) -> bytes:
+    """Render stored values, checking cancellation around indivisible PDF generation."""
+    _export_checkpoint(cancel, progress, 0.05, "正在准备 PDF 报告")
     request = request or create_report_request(record)
     _verify_report_request(record, request)
     with _registered_font_context() as font:
         figure_pngs: list[tuple[str, bytes]] = []
         omissions: list[str] = []
         for spec in request.figure_specs:
+            _export_checkpoint(cancel, progress, 0.2, "正在生成报告图表")
             try:
                 figure = build_figure(record, spec)
+                _export_checkpoint(cancel)
                 provenance = {
                     "run_id": record.run_id,
                     "revision_id": record.revision_id,
@@ -928,10 +951,12 @@ def build_analysis_report_bytes(record: RunRecord, request: ReportRequest | None
                     **_figure_spec_provenance(spec),
                 }
                 png_data = _serialize_figure(figure, ("png",), 300, provenance)["png"]
+                _export_checkpoint(cancel)
                 figure_pngs.append((f"{spec.table_name} · {spec.y_column}", png_data))
             except (ReportingError, ValueError, TypeError, RuntimeError) as exc:
                 omissions.append(f"{spec.table_name}: {type(exc).__name__}: {exc}")
-        return _build_report_pdf(record, request, font, figure_pngs, omissions)
+        return _build_report_pdf(record, request, font, figure_pngs, omissions,
+                                 cancel=cancel, progress=progress)
 
 
 def _slug(value: str) -> str:
@@ -1022,13 +1047,23 @@ def write_analysis_report(
     *,
     request: ReportRequest | None = None,
     overwrite: bool = False,
+    cancel: CancelCallback | None = None,
+    progress: ProgressCallback | None = None,
 ) -> ReportResult:
-    """Write a PDF report with sibling staging and atomic replacement."""
+    """Stage a PDF, cooperatively cancel before commit, and return a commit receipt.
+
+    cancel is a zero-argument predicate; progress receives (fraction, message).
+    PDF generation/save must finish before observing cancellation. No callback
+    runs after the final pre-commit check, so late cancellation retains success.
+    """
+    _export_checkpoint(cancel, progress, 0.0, "正在准备报告导出")
     output = Path(destination).expanduser().absolute()
     if output.exists() and not overwrite:
         raise FileExistsError(str(output))
     output.parent.mkdir(parents=True, exist_ok=True)
-    data = build_analysis_report_bytes(record, request)
+    data = build_analysis_report_bytes(record, request, cancel=cancel, progress=progress)
+    _export_checkpoint(cancel, progress, 0.9, "正在写入报告暂存文件")
+    digest = hashlib.sha256(data).hexdigest()
     descriptor, temp_name = tempfile.mkstemp(prefix=f".{output.name}.", suffix=".pdf.tmp", dir=output.parent)
     temp = Path(temp_name)
     try:
@@ -1038,6 +1073,7 @@ def write_analysis_report(
             os.fsync(stream.fileno())
         if output.exists() and not overwrite:
             raise FileExistsError(str(output))
+        _export_checkpoint(cancel, progress, 0.98, "正在提交 PDF 报告")
         os.replace(temp, output)
     except Exception:
         try:
@@ -1045,7 +1081,7 @@ def write_analysis_report(
         except OSError:
             pass
         raise
-    return ReportResult(output, hashlib.sha256(data).hexdigest(), len(data))
+    return ReportResult(output, digest, len(data))
 
 
 __all__ = [

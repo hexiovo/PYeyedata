@@ -392,6 +392,9 @@ class MainWindow(QMainWindow):
     def _connect_pages(self) -> None:
         self.import_page.import_completed.connect(self._on_import_completed)
         self.import_page.import_failed.connect(lambda message: self._append_log("导入失败：" + message))
+        self.import_page.import_progress.connect(self._on_import_progress)
+        self.import_page.import_state_changed.connect(self._on_import_state_changed)
+        self.import_page.import_idle.connect(self._on_import_idle)
         self.import_page.dataset_invalidated.connect(self._on_dataset_invalidated)
         self.import_page.configuration_changed.connect(self._on_import_configuration_changed)
         self.quality_page.configuration_changed.connect(self._on_processing_configuration_changed)
@@ -401,6 +404,15 @@ class MainWindow(QMainWindow):
         self.metrics_page.edit_requirements_requested.connect(self._on_edit_requirements)
         self.group_page.configuration_changed.connect(self._on_group_configuration_changed)
         self.group_page.scope_changed.connect(self._on_group_scope_changed)
+        self.metrics_page.parameter_error_button.clicked.connect(
+            lambda: self._activate_parameter_error_page("metrics")
+        )
+        self.quality_page.parameter_error_button.clicked.connect(
+            lambda: self._activate_parameter_error_page("quality")
+        )
+        self.group_page.parameter_error_button.clicked.connect(
+            lambda: self._activate_parameter_error_page("group")
+        )
         self.design_page.configuration_changed.connect(self._on_design_configuration_changed)
         self.results_page.history_selected.connect(self._on_history_selected)
         self.results_page.archive_requested.connect(self._save_archive_dialog)
@@ -418,9 +430,10 @@ class MainWindow(QMainWindow):
     def _cancel_current_task(self):
         self.task_manager.cancel()
         self.operation_manager.cancel()
+        self.import_page.cancel_import()
 
     def _start_operation(self, kind, operation):
-        if self.task_manager.active or self.operation_manager.active:
+        if self.task_manager.active or self.operation_manager.active or self.import_page.import_active:
             raise RuntimeError("请先完成或取消当前后台任务。")
         self._operation_kind = kind
         self._operation_session_generation = self.session.generation
@@ -430,6 +443,7 @@ class MainWindow(QMainWindow):
         self.preflight_action.setEnabled(False)
         self.run_action.setEnabled(False)
         self.operation_manager.start(operation)
+        self._refresh_busy_state()
 
     def _on_operation_progress(self, generation, fraction, message):
         if generation == self.operation_manager.generation:
@@ -450,8 +464,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "操作失败", details)
 
     def _on_operation_idle(self):
-        self.cancel_action.setEnabled(self.task_manager.active)
-        self.results_page.set_c_capabilities(archive=True, reopen=True, full_export=True)
         self._refresh_dependency_state()
         result, self._operation_result = self._operation_result, None
         if result is not None:
@@ -497,8 +509,9 @@ class MainWindow(QMainWindow):
                 self.status_label.setText("导出完成：" + str(getattr(result, "path", result)))
         elif self._operation_kind == "save" and self._prepared_archive is not None:
             self._prepared_archive.close(); self._prepared_archive = None
+        self._refresh_busy_state()
         if getattr(self, "_close_pending", False):
-            self.close()
+            self._maybe_finish_close()
 
     def _save_archive_dialog(self, record):
         from pyeyedata.archive_session import prepare_run_archive
@@ -560,7 +573,10 @@ class MainWindow(QMainWindow):
                    f"\n列数：{len(preview.output_columns)}\n公式风险文本：{preview.formula_like_text_cells}"
                    f"\n工作表：{preview.worksheet_count}\n" + "\n".join(preview.warnings))
         if QMessageBox.question(self, "导出内容预览", message) == QMessageBox.StandardButton.Yes:
-            self._start_operation("export", lambda cancel, progress: export_table(record, request) if not cancel() else None)
+            self._start_operation(
+                "export",
+                lambda cancel, progress: export_table(record, request, cancel=cancel, progress=progress),
+            )
 
     def _export_dialog(self, _format=None):
         from pyeyedata.exports import create_table_export_request, preview_table_export
@@ -575,7 +591,12 @@ class MainWindow(QMainWindow):
         if fmt == "pdf":
             path, _ = QFileDialog.getSaveFileName(self, "保存分析报告", record.run_id + ".pdf", "PDF (*.pdf)")
             if path:
-                self._start_operation("export", lambda cancel, progress: write_analysis_report(record, path, overwrite=True))
+                self._start_operation(
+                    "export",
+                    lambda cancel, progress: write_analysis_report(
+                        record, path, overwrite=True, cancel=cancel, progress=progress
+                    ),
+                )
             return
         names = record.table_names()
         name, ok = QInputDialog.getItem(self, "结果表", "选择完整 typed 结果表", names, 0, False)
@@ -641,6 +662,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("数据已载入，等待显式配置")
         self.statusBar().showMessage("已载入数据修订 " + revision.revision_id)
         self._refresh_dependency_state()
+        self._refresh_busy_state()
 
     def _current_context_tables(self) -> dict[str, pd.DataFrame]:
         return {
@@ -671,6 +693,42 @@ class MainWindow(QMainWindow):
         self._append_log(
             f"导入完成：{len(revision.dataset_copy().signals):,} 个规范化信号行；"
             f"具名上下文表 {', '.join(sorted(self._context_tables)) or '无'}。"
+        )
+
+    def _on_import_progress(self, percent: int, message: str) -> None:
+        if self.import_page.import_active:
+            self.progress_bar.setValue(max(0, min(100, int(percent))))
+            self.status_label.setText(message)
+
+    def _on_import_state_changed(self, active: bool, message: str) -> None:
+        if active and message:
+            self.status_label.setText(message)
+            self.statusBar().showMessage(message)
+        elif not active and not (self.task_manager.active or self.operation_manager.active):
+            self.status_label.setText(self.import_page.status.text())
+            self.statusBar().showMessage(self.import_page.status.text())
+        self.cancel_action.setText("取消导入" if active else "取消当前任务")
+        self._refresh_busy_state()
+
+    def _on_import_idle(self) -> None:
+        self._refresh_busy_state()
+        self._maybe_finish_close()
+
+    def _refresh_busy_state(self) -> None:
+        if not hasattr(self, "import_page"):
+            return
+        pipeline_busy = self.task_manager.active
+        operation_busy = self.operation_manager.active
+        import_busy = self.import_page.import_active
+        other_busy = pipeline_busy or operation_busy
+        self.import_page.set_external_busy(other_busy)
+        busy = other_busy or import_busy
+        ready = self.session.dataset_revision is not None
+        self.preflight_action.setEnabled(bool(ready and not busy))
+        self.run_action.setEnabled(bool(ready and not busy))
+        self.cancel_action.setEnabled(busy)
+        self.results_page.set_c_capabilities(
+            archive=True, reopen=True, full_export=True, busy=busy
         )
 
     def _on_dataset_invalidated(self, reason: str) -> None:
@@ -754,7 +812,9 @@ class MainWindow(QMainWindow):
         if self.session.active_snapshot is not None:
             self.session.invalidate_active_run()
         self.metrics_page.invalidate_preflight()
-        if self.session.dataset_revision is not None:
+        if self.import_page.import_active:
+            self.status_label.setText(self.import_page.pending_import_message)
+        elif self.session.dataset_revision is not None:
             self.status_label.setText("配置已变化；当前结果保留为历史，需重新前检或运行")
         self._append_log("配置失效：" + reason)
         self._refresh_dependency_state()
@@ -803,7 +863,7 @@ class MainWindow(QMainWindow):
         self._start_pipeline(PipelinePhase.RUN)
 
     def _start_pipeline(self, phase: PipelinePhase) -> None:
-        if self.task_manager.active or self.operation_manager.active:
+        if self.task_manager.active or self.operation_manager.active or self.import_page.import_active:
             self.status_label.setText("已有任务运行中")
             return
         try:
@@ -831,12 +891,46 @@ class MainWindow(QMainWindow):
                 self._snapshot_phases.pop(snapshot_key, None)
             self._append_log(f"任务未启动：{type(exc).__name__}: {exc}")
             self.status_label.setText("配置失败")
+            self._route_configuration_error(exc)
             return
         self.preflight_action.setEnabled(False)
         self.run_action.setEnabled(False)
-        self.cancel_action.setEnabled(True)
         self.progress_bar.setValue(0)
         self.status_label.setText("运行中：" + ("前提检查" if phase is PipelinePhase.PREFLIGHT else "分析"))
+        self._refresh_busy_state()
+
+    def _route_configuration_error(self, error: Exception) -> None:
+        """Surface parameter errors on their owning page and focus the field."""
+        message = str(error)
+        quality_name = self.quality_page._parameter_error_name
+        if message.startswith("processing.") or (quality_name is not None and quality_name in message):
+            if self.quality_page._parameter_error_name is None:
+                self.quality_page._report_parameter_error(message)
+            self._activate_parameter_error_page("quality")
+            return
+        metric_location = self.metrics_page._parameter_error_location
+        if metric_location is not None and metric_location[1] in message:
+            self._activate_parameter_error_page("metrics")
+            return
+        group_location = self.group_page._parameter_error_location
+        if "group." in message or (group_location is not None and group_location[1] in message):
+            if self.group_page._parameter_error_location is None:
+                self.group_page._report_parameter_error(message)
+            self._activate_parameter_error_page("group")
+
+    def _activate_parameter_error_page(self, page: str) -> None:
+        if page == "quality":
+            row, focus = 1, self.quality_page._focus_parameter_error
+        elif page == "group":
+            row, focus = 3, self.group_page._focus_parameter_error
+        elif page == "metrics":
+            location = self.metrics_page._parameter_error_location
+            row = 5 if location is not None and location[0] == "advanced" else 2
+            focus = self.metrics_page._focus_parameter_error
+        else:
+            return
+        self.step_list.setCurrentRow(row)
+        QTimer.singleShot(0, focus)
 
     def _snapshot_configuration(
         self, selection: SelectionSpec
@@ -846,7 +940,7 @@ class MainWindow(QMainWindow):
             raise RuntimeError("请先完成 CSV/XLSX 导入并规范化。")
         dataset = revision.dataset_copy()
         context = {name: frame.copy(deep=True) for name, frame in self._context_tables.items()}
-        parameters = self._compose_parameters(dataset)
+        parameters = self._compose_parameters(dataset, selection=selection)
         run_revision = revision
         normalized_input_changed = False
         if selection.run_group:
@@ -876,7 +970,9 @@ class MainWindow(QMainWindow):
             parameters.setdefault("metadata", {})["context_source_manifest"] = context_manifest
         return parameters, context, run_revision
 
-    def _compose_parameters(self, dataset: NormalizedDataset) -> dict[str, Any]:
+    def _compose_parameters(
+        self, dataset: NormalizedDataset, *, selection: SelectionSpec | None = None
+    ) -> dict[str, Any]:
         # Restored host values are the baseline; the values visible in typed
         # pages are layered over that baseline immediately before a snapshot.
         output: dict[str, Any] = deepcopy(self._parameters)
@@ -890,10 +986,11 @@ class MainWindow(QMainWindow):
                 else:
                     target[key] = deepcopy(value)
 
+        selection = selection or self.metrics_page.selection_spec()
         quality = self.quality_page.processing_config()
         metric_values = self.metrics_page.parameter_values()
         merge_into(output, metric_values)
-        group_values = self.group_page.configuration_values()
+        group_values = self.group_page.configuration_values(include_group=selection.run_group)
         if isinstance(group_values.get("group"), Mapping):
             group = dict(output.get("group", {})) if isinstance(output.get("group"), Mapping) else {}
             merge_into(group, group_values["group"])
@@ -1123,7 +1220,11 @@ class MainWindow(QMainWindow):
             table_refs["context"] = self._context_tables
         inputs["group_scope"] = self.group_page.scope_state()
         try:
-            parameters = self._compose_parameters(revision.dataset_copy()) if revision is not None else self._parameters
+            parameters = (
+                self._compose_parameters(
+                    revision.dataset_copy(), selection=self.metrics_page.selection_spec()
+                ) if revision is not None else self._parameters
+            )
         except Exception:
             parameters = deepcopy(self._parameters)
         parameters = {**dict(parameters), "selection": self.metrics_page.selection_spec().to_dict()}
@@ -1300,10 +1401,7 @@ class MainWindow(QMainWindow):
         key = (run_id, generation)
         self._snapshots.pop(key, None)
         self._snapshot_phases.pop(key, None)
-        self.cancel_action.setEnabled(False)
-        ready = self.session.dataset_revision is not None
-        self.preflight_action.setEnabled(ready)
-        self.run_action.setEnabled(ready)
+        self._refresh_busy_state()
 
     def _on_history_selected(self, record: RunRecord) -> None:
         if not isinstance(record, RunRecord):
@@ -1327,18 +1425,27 @@ class MainWindow(QMainWindow):
         self.log_view.appendPlainText(line)
 
     def closeEvent(self, event: Any) -> None:
-        if self.task_manager.active or self.operation_manager.active:
+        if self.task_manager.active or self.operation_manager.active or self.import_page.import_active:
             self._close_pending = True
             self.task_manager.cancel()
             self.operation_manager.cancel()
-            self.status_label.setText("已请求取消；等待当前后端任务结束后关闭")
+            if self.import_page.import_active:
+                self.import_page.cancel_import()
+                self.status_label.setText("已请求取消导入；等待当前文件读取结束后关闭")
+            else:
+                self.status_label.setText("已请求取消；等待当前后端任务结束后关闭")
             event.ignore()
             return
         self.session.execution_cache.clear()
         super().closeEvent(event)
 
     def _on_task_manager_idle(self) -> None:
+        self._refresh_busy_state()
+        self._maybe_finish_close()
+
+    def _maybe_finish_close(self) -> None:
         if getattr(self, "_close_pending", False):
-            self._close_pending = False
-            self.close()
+            if not (self.task_manager.active or self.operation_manager.active or self.import_page.import_active):
+                self._close_pending = False
+                self.close()
 

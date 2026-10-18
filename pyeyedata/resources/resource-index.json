@@ -121,7 +121,7 @@
   "help_guide": {
     "status": "available",
     "resource_path": "help/PYeyedata-user-guide-zh.pdf",
-    "application_version": "0.9.0",
+    "application_version": "0.9.1",
     "guide_version": "0.9.0",
     "sha256": "966930d8932704817e2cf244200ce029ec56d709aff7fbace594d3c081acb409"
   },
@@ -131,7 +131,7 @@
     "source_manifest": "fonts/font-source.json",
     "usage": "Keep the resource_path context open through registration and the complete render/export."
   },
-  "application_version": "0.9.0",
+  "application_version": "0.9.1",
   "licenses": {
     "status": "Offline license texts and source notices are grouped by the pinned distributions and Qt upstream modules represented in the preparation inventory. The 281 native rows are mapped against the CPython 3.12.10 Matplotlib-export Analysis; the clean-root final build and release evidence must still reconcile every actual row, file hash, source group, license/notice, and rebuild route. Microsoft names, file versions, hashes, and source paths do not by themselves establish redistribution entitlement; external binary redistribution remains outside the task scope.",
     "source_manifest": "licenses/source-manifest.json",
@@ -222,7 +222,7 @@
       "licenses/qt/6.8.3/qtimageformats/libtiff/COPYRIGHT.txt": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7",
       "licenses/qt/6.8.3/qtimageformats/libwebp/COPYING.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
       "licenses/qt/6.8.3/qtimageformats/libwebp/PATENTS.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
-      "licenses/source-manifest.json": "987968b55aacb0288c4cd6bf0f72372d2030df809d279c14cd0e04bcc39702fa",
+      "licenses/source-manifest.json": "ebf4a0c08bd2b01e7e02e973013f4583d557e3a5b55c0d44029b664a5ba23210",
       "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"
     }
   }

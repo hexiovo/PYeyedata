@@ -1,9 +1,11 @@
 """Shared quality control and conservative preprocessing for eye-tracking signals."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 import hashlib
 import json
+from numbers import Integral, Real
 from typing import Any, Callable, Literal, Mapping
 
 import numpy as np
@@ -54,28 +56,58 @@ class ProcessingConfig:
     baseline_min_length_s: float = 0.200
 
     def __post_init__(self) -> None:
-        if self.order_policy not in {"require_monotonic", "sort_by_time"}:
-            raise ProcessingError("Unsupported order_policy")
-        if self.duplicate_policy not in {"reject", "retain_with_flag"}:
-            raise ProcessingError("Unsupported duplicate_policy")
+        def finite_real(name: str, value: Any) -> None:
+            # Validate without casting: legitimate NumPy scalars and real
+            # numbers retain their exact value and type. Ordered comparisons
+            # also cover NaN/Inf without narrowing extended-precision reals.
+            if (isinstance(value, bool) or not isinstance(value, Real)
+                    or not -np.inf < value < np.inf):
+                raise ProcessingError(f"{name} must be a finite real number (not bool)")
+
+        for name, choices in (
+            ("order_policy", ("require_monotonic", "sort_by_time")),
+            ("duplicate_policy", ("reject", "retain_with_flag")),
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or value not in choices:
+                raise ProcessingError(f"{name} must be one of {choices}")
+        for name in ("interpolate_gaze", "interpolate_pupil", "allow_unverified_interpolation_bounds"):
+            if not isinstance(getattr(self, name), bool):
+                raise ProcessingError(f"{name} must be bool (True or False)")
+        finite_real("support_gap_factor", self.support_gap_factor)
         if self.support_gap_factor <= 1:
             raise ProcessingError("support_gap_factor must be greater than 1")
-        if self.support_gap_max_s is not None and self.support_gap_max_s <= 0:
-            raise ProcessingError("support_gap_max_s must be positive")
-        if self.gaze_max_gap_s <= 0 or self.pupil_max_gap_s <= 0:
-            raise ProcessingError("Interpolation gap limits must be positive")
-        if self.max_missing_samples < 1:
-            raise ProcessingError("max_missing_samples must be positive")
-        if self.lowpass_cutoff_hz is not None and self.lowpass_cutoff_hz <= 0:
-            raise ProcessingError("lowpass_cutoff_hz must be positive")
-        if self.lowpass_order < 1:
-            raise ProcessingError("lowpass_order must be positive")
+        for name in ("support_gap_max_s", "gaze_max_gap_s", "pupil_max_gap_s", "lowpass_cutoff_hz"):
+            value = getattr(self, name)
+            if value is None and name in ("support_gap_max_s", "lowpass_cutoff_hz"):
+                continue
+            finite_real(name, value)
+            if value <= 0:
+                raise ProcessingError(f"{name} must be positive")
+        for name in ("max_missing_samples", "lowpass_order"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
+                raise ProcessingError(f"{name} must be a positive integer (not bool)")
+        finite_real("baseline_min_coverage", self.baseline_min_coverage)
         if not 0 < self.baseline_min_coverage <= 1:
             raise ProcessingError("baseline_min_coverage must be within (0, 1]")
+        finite_real("baseline_min_length_s", self.baseline_min_length_s)
+        if self.baseline_min_length_s < 0:
+            raise ProcessingError("baseline_min_length_s must be zero or greater")
         if self.pupil_baseline_window_s is not None:
-            start, end = self.pupil_baseline_window_s
+            window = self.pupil_baseline_window_s
+            if isinstance(window, (str, bytes, bytearray)) or not isinstance(window, Sequence):
+                raise ProcessingError("pupil_baseline_window_s must be a sequence of two finite real endpoints")
+            try:
+                if len(window) != 2:
+                    raise ProcessingError("pupil_baseline_window_s must contain exactly two endpoints")
+                start, end = window
+            except (TypeError, ValueError, IndexError, OverflowError) as exc:
+                raise ProcessingError("pupil_baseline_window_s must contain exactly two endpoints") from exc
+            finite_real("pupil_baseline_window_s start", start)
+            finite_real("pupil_baseline_window_s end", end)
             if end <= start:
-                raise ProcessingError("Baseline window must have positive duration")
+                raise ProcessingError("pupil_baseline_window_s end must be greater than start (positive duration)")
 
     def to_dict(self) -> dict[str, Any]:
         return {

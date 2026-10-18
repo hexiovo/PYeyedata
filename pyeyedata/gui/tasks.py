@@ -172,7 +172,11 @@ class _OperationWorker(QObject):
         result = None
         try:
             result = self.operation(self.token, lambda fraction, message: self.progress.emit(self.generation, float(fraction), str(message)))
-            if self.token():
+            # Export/report receipts are produced only after their atomic output
+            # promotion. A late cancellation must not relabel committed bytes as
+            # cancelled or discard the destination receipt.
+            committed = getattr(result, "commit_complete", False) is True
+            if self.token() and not committed:
                 if hasattr(result, "close"):
                     result.close()
                 self.cancelled.emit(self.generation)
@@ -231,7 +235,8 @@ class OperationTaskManager(QObject):
 
     @Slot(int, object)
     def _deliver(self, generation, result):
-        if generation != self._generation or not self._active or self._active[2]():
+        committed = getattr(result, "commit_complete", False) is True
+        if generation != self._generation or not self._active or (self._active[2]() and not committed):
             if hasattr(result, "close"):
                 result.close()
             return
@@ -241,7 +246,6 @@ class OperationTaskManager(QObject):
         if not self._active:
             return False
         self._active[2].cancel()
-        self._generation += 1
         return True
 
     @Slot()

@@ -1,10 +1,12 @@
 """Four-source CSV/XLSX import and explicit semantic normalization UI."""
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 import json
 import hashlib
 from pathlib import Path
+from threading import Event
 from typing import Any, Mapping
 
 import numpy as np
@@ -160,18 +162,42 @@ class _ImportRequest:
 
 
 class _ImportSignals(QObject):
-    completed = Signal(object, object)
-    failed = Signal(str)
-    progress = Signal(int, str)
+    completed = Signal(int, object, object)
+    failed = Signal(int, str)
+    cancelled = Signal(int)
+    progress = Signal(int, int, str)
+    finished = Signal(int)
+
+
+class _ImportCancellationToken:
+    def __init__(self) -> None:
+        self._event = Event()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    def __call__(self) -> bool:
+        return self._event.is_set()
+
+
+class _ImportCancelled(Exception):
+    pass
 
 
 class _NormalizeWorker(QRunnable):
     """Read, normalize and freeze a complete import off the Qt GUI thread."""
 
-    def __init__(self, request: _ImportRequest) -> None:
+    def __init__(self, generation: int, request: _ImportRequest,
+                 token: _ImportCancellationToken) -> None:
         super().__init__()
+        self.generation = generation
         self.request = request
+        self.token = token
         self.signals = _ImportSignals()
+
+    def _check_cancelled(self) -> None:
+        if self.token():
+            raise _ImportCancelled
 
     @Slot()
     def run(self) -> None:
@@ -181,12 +207,15 @@ class _NormalizeWorker(QRunnable):
             manifests: dict[str, dict[str, Any]] = {}
             performance_meta: dict[str, Any] = {}
             for index, spec in enumerate(self.request.sources, 1):
+                self._check_cancelled()
                 self.signals.progress.emit(
+                    self.generation,
                     round(5 + 75 * (index - 1) / max(1, len(self.request.sources))),
                     f"读取与规范化：{_ROLE_TITLES[spec.role]}",
                 )
                 imported = read_table(spec.path, role=spec.role, sheet_name=spec.sheet_name,
                                       csv_options=spec.csv_options, preview_rows=None)
+                self._check_cancelled()
                 source_bytes = Path(spec.path).read_bytes()
                 byte_hash = hashlib.sha256(source_bytes).hexdigest()
                 if byte_hash != imported.sha256:
@@ -197,6 +226,7 @@ class _NormalizeWorker(QRunnable):
                                         "raw_source_key": raw_key, "column_mapping": spec.column_map,
                                         "field_units": spec.units}
                 if spec.role == "signals":
+                    self._check_cancelled()
                     normalized = normalize_signals(imported, SignalImportOptions(
                         column_map=spec.column_map,
                         subject_id=self.request.signal_subject_id,
@@ -206,6 +236,7 @@ class _NormalizeWorker(QRunnable):
                         reading_direction_values=self.request.reading_direction_values,
                     ))
                 elif spec.role == "segments":
+                    self._check_cancelled()
                     if normalized is None:
                         raise DataImportError("主要信号必须先完成规范化。")
                     dataset_scope = dict(self.request.dataset_scope) if self.request.dataset_scope is not None else None
@@ -221,6 +252,7 @@ class _NormalizeWorker(QRunnable):
                         timebase_id=self.request.scope.timebase_id,
                     )
                 elif spec.role == "aois":
+                    self._check_cancelled()
                     if normalized is None:
                         raise DataImportError("主要信号必须先完成规范化。")
                     try:
@@ -247,6 +279,7 @@ class _NormalizeWorker(QRunnable):
                             "raw_source_key": raw_key, "column_mapping": spec.column_map,
                             "missing_name_policy": self.request.aoi_missing_name_policy}
                 elif spec.role == "performance":
+                    self._check_cancelled()
                     if normalized is None:
                         raise DataImportError("主要信号必须先完成规范化。")
                     normalized.performance = normalize_performance(imported)
@@ -296,14 +329,21 @@ class _NormalizeWorker(QRunnable):
                 "device_validation_method": self.request.coordinate.device_validation_method,
                 "device_validation_evidence": list(self.request.coordinate.device_validation_evidence),
             }
-            self.signals.progress.emit(90, "校验规范化数据与源字节哈希")
+            self._check_cancelled()
+            self.signals.progress.emit(self.generation, 90, "校验规范化数据与源字节哈希")
             normalized.validate()
+            self._check_cancelled()
             revision = DatasetRevision.create(normalized, raw_sources=raw_sources)
             preview = normalized.signals.head(500).copy(deep=True)
-            self.signals.progress.emit(100, "四类数据导入完成")
-            self.signals.completed.emit(revision, preview)
+            self._check_cancelled()
+            self.signals.progress.emit(self.generation, 100, "四类数据导入完成")
+            self.signals.completed.emit(self.generation, revision, preview)
+        except _ImportCancelled:
+            self.signals.cancelled.emit(self.generation)
         except Exception as exc:
-            self.signals.failed.emit(f"{type(exc).__name__}: {exc}")
+            self.signals.failed.emit(self.generation, f"{type(exc).__name__}: {exc}")
+        finally:
+            self.signals.finished.emit(self.generation)
 
 
 class CoordinateSettingsWidget(QWidget):
@@ -1035,10 +1075,17 @@ class ImportPage(QWidget):
     import_progress = Signal(int, str)
     dataset_invalidated = Signal(str)
     configuration_changed = Signal()
+    import_state_changed = Signal(bool, str)
+    import_idle = Signal()
 
     def __init__(self, parent: QWidget | None = None, *, context_editor: ContextEditor | None = None) -> None:
         super().__init__(parent)
         self._worker: _NormalizeWorker | None = None
+        self._worker_generation: int | None = None
+        self._request_generation = 0
+        self._import_token: _ImportCancellationToken | None = None
+        self._external_busy = False
+        self._pending_worker_message = ""
         self._last_revision: DatasetRevision | None = None
         self.sources = {role: ImportSourcePanel(role, self) for role in _ROLE_TITLES}
         self.coordinate = CoordinateSettingsWidget(self)
@@ -1055,9 +1102,14 @@ class ImportPage(QWidget):
             self.source_tabs.addTab(panel, _ROLE_TITLES[role])
         self.source_tabs.addTab(self.context_editor, "目标、参考与事件资料")
         self.import_button = QPushButton("导入并规范化", self)
+        self.cancel_import_button = QPushButton("取消导入", self)
+        self.cancel_import_button.setObjectName("cancelImportButton")
+        self.cancel_import_button.setToolTip("请求协作取消；当前文件读取结束后才会停止。")
+        self.cancel_import_button.setEnabled(False)
         self.status = QLabel("先选择主要信号 CSV/XLSX，再按需添加段、AOI 和绩效表。", self)
         self.status.setWordWrap(True)
         self.import_button.clicked.connect(self.start_import)
+        self.cancel_import_button.clicked.connect(self.cancel_import)
         for panel in self.sources.values():
             panel.changed.connect(self._source_changed)
             panel.preview_loaded.connect(self._preview_ready)
@@ -1070,7 +1122,7 @@ class ImportPage(QWidget):
             lambda: self._normalization_configuration_changed("reading_direction_mapping_changed", "阅读方向映射已变化")
         )
         self.scope.settings_changed.connect(self._scope_changed)
-        self.context_editor.changed.connect(self.configuration_changed.emit)
+        self.context_editor.changed.connect(self._context_configuration_changed)
         self.context_editor.import_failed.connect(self.import_failed.emit)
         layout = QVBoxLayout(self)
         intro = QLabel("四类文件分别导入；来源、单位、ID 与字段映射都需明确。原始信号在标准化前只读，未知/未提供能力保持未知。", self)
@@ -1081,10 +1133,51 @@ class ImportPage(QWidget):
         layout.addWidget(self.source_tabs, 5)
         footer = QHBoxLayout()
         footer.addWidget(self.status, 1)
+        footer.addWidget(self.cancel_import_button)
         footer.addWidget(self.import_button)
         layout.addLayout(footer)
 
+    @property
+    def import_active(self) -> bool:
+        return self._worker is not None
+
+    @property
+    def pending_import_message(self) -> str:
+        if not self.import_active:
+            return ""
+        return self._pending_worker_message or "正在导入并规范化"
+
+    def set_external_busy(self, busy: bool) -> None:
+        self._external_busy = bool(busy)
+        self.import_button.setEnabled(not self._external_busy and self._worker is None)
+
+    def _context_configuration_changed(self) -> None:
+        self._invalidate_active_import("上下文资料配置已变化")
+        self.configuration_changed.emit()
+
+    def _invalidate_active_import(self, reason: str) -> None:
+        if self._worker is None or self._import_token is None:
+            return
+        self._request_generation += 1
+        self._import_token.cancel()
+        self._pending_worker_message = f"{reason}；已请求取消，等待当前读取结束，迟到结果不会安装。"
+        self.status.setText(self._pending_worker_message)
+        self.cancel_import_button.setEnabled(False)
+        self.import_state_changed.emit(True, self._pending_worker_message)
+
+    def cancel_import(self) -> bool:
+        if self._worker is None or self._import_token is None or self._import_token():
+            return False
+        self._request_generation += 1
+        self._import_token.cancel()
+        self._pending_worker_message = "已请求取消导入；等待当前文件读取结束，先前有效数据保持不变。"
+        self.status.setText(self._pending_worker_message)
+        self.cancel_import_button.setEnabled(False)
+        self.import_state_changed.emit(True, self._pending_worker_message)
+        return True
+
     def _source_changed(self, role: str) -> None:
+        self._invalidate_active_import(f"{_ROLE_TITLES.get(role, role)} 来源或映射已变化")
         if role == "aois" and self._last_revision is not None:
             # Keep the valid primary input available while the optional AOI
             # source/mapping is a draft. Previous geometry cannot masquerade as
@@ -1099,11 +1192,14 @@ class ImportPage(QWidget):
             self._last_revision = revision
             self.import_completed.emit(revision, dataset.signals.head(500))
             self.sources["aois"].status.setText("AOI 草稿待验证；主要信号仍可用于不依赖 AOI 的分析。")
+            if not self.import_active:
+                self.status.setText("AOI 草稿待验证；主要信号仍可用于不依赖 AOI 的分析。")
             self.configuration_changed.emit()
             return
         self.configuration_changed.emit()
         if self._last_revision is not None:
-            self.status.setText(f"{_ROLE_TITLES[role]} 来源或映射已变化；请重新导入，旧数据修订已失效。")
+            if not self.import_active:
+                self.status.setText(f"{_ROLE_TITLES[role]} 来源或映射已变化；请重新导入，旧数据修订已失效。")
             self.dataset_invalidated.emit("source_or_mapping_changed_requires_renormalization")
         if role == "signals":
             panel = self.sources["signals"]
@@ -1145,17 +1241,22 @@ class ImportPage(QWidget):
         )
 
     def _normalization_configuration_changed(self, reason: str, description: str) -> None:
+        self._invalidate_active_import(description)
         self.configuration_changed.emit()
         if self._last_revision is not None:
-            self.status.setText(f"{description}；请重新导入并规范化，现有数据修订仍绑定旧声明。")
+            if not self.import_active:
+                self.status.setText(f"{description}；请重新导入并规范化，现有数据修订仍绑定旧声明。")
             self.dataset_invalidated.emit(reason)
 
     def _scope_changed(self) -> None:
+        self._invalidate_active_import("作用域、同步或 timebase 配置已变化")
         self.configuration_changed.emit()
         if self._last_revision is not None and not self.sources["segments"].source_path:
-            self.status.setText("作用域/同步/timebase 已变化；如需分析共享段，请重新导入并规范化 segments。")
+            if not self.import_active:
+                self.status.setText("作用域/同步/timebase 已变化；如需分析共享段，请重新导入并规范化 segments。")
         elif self._last_revision is not None:
-            self.status.setText("作用域、同步或 timebase 已变化；必须重新导入以重新规范化 segments。")
+            if not self.import_active:
+                self.status.setText("作用域、同步或 timebase 已变化；必须重新导入以重新规范化 segments。")
             self.dataset_invalidated.emit("segment_scope_changed_requires_renormalization")
 
     def _required_for_role(self, role: str, subject_id: str | None, session_id: str | None) -> set[str] | None:
@@ -1249,6 +1350,9 @@ class ImportPage(QWidget):
         return panel.aoi_overlap_rule_ref.text().strip() or None
 
     def start_import(self) -> None:
+        if self._external_busy:
+            self.status.setText("请等待当前分析、归档或导出任务结束后再导入。")
+            return
         if self._worker is not None:
             self.status.setText("已有导入任务运行中。")
             return
@@ -1257,23 +1361,45 @@ class ImportPage(QWidget):
         except Exception as exc:
             self.status.setText("导入配置尚未完成：" + str(exc))
             return
-        self._worker = _NormalizeWorker(request)
+        self._request_generation += 1
+        generation = self._request_generation
+        token = _ImportCancellationToken()
+        self._worker_generation = generation
+        self._import_token = token
+        self._pending_worker_message = ""
+        # The worker receives an immutable snapshot of the page's current draft.
+        self._worker = _NormalizeWorker(generation, copy.deepcopy(request), token)
         self._worker.signals.progress.connect(self._on_progress)
         self._worker.signals.completed.connect(self._on_import_completed)
         self._worker.signals.failed.connect(self._on_import_failed)
+        self._worker.signals.cancelled.connect(self._on_import_cancelled)
+        self._worker.signals.finished.connect(self._on_import_finished)
         self.import_button.setEnabled(False)
+        self.cancel_import_button.setEnabled(True)
         self.status.setText("后台读取并调用公开 normalize_* 接口；源文件不会在 GUI 线程读取。")
+        # Reset only when a new import generation actually starts. Cancellation
+        # and invalidation notifications keep the current task's progress state.
+        self.import_progress.emit(0, "正在导入并规范化")
+        self.import_state_changed.emit(True, "正在导入并规范化")
         QThreadPool.globalInstance().start(self._worker)
 
-    @Slot(int, str)
-    def _on_progress(self, percent: int, message: str) -> None:
+    def _is_current_import(self, generation: int) -> bool:
+        return (generation == self._request_generation
+                and generation == self._worker_generation
+                and self._import_token is not None
+                and not self._import_token())
+
+    @Slot(int, int, str)
+    def _on_progress(self, generation: int, percent: int, message: str) -> None:
+        if not self._is_current_import(generation):
+            return
         self.import_progress.emit(percent, message)
         self.status.setText(f"{percent}% · {message}")
 
-    @Slot(object, object)
-    def _on_import_completed(self, revision: object, preview: object) -> None:
-        self._worker = None
-        self.import_button.setEnabled(True)
+    @Slot(int, object, object)
+    def _on_import_completed(self, generation: int, revision: object, preview: object) -> None:
+        if not self._is_current_import(generation):
+            return
         if not isinstance(revision, DatasetRevision) or not isinstance(preview, pd.DataFrame):
             self.status.setText("导入 worker 返回内容无效。")
             return
@@ -1290,12 +1416,43 @@ class ImportPage(QWidget):
             self.sources["aois"].status.setText("AOI 草稿无效；主要信号已保留，只有依赖 AOI 的方法不可用。\n" + "\n".join(lines))
             self.status.setText("主要信号已导入；AOI 草稿未纳入有效几何，请查看 ROI/AOI 页的具体来源问题。")
 
-    @Slot(str)
-    def _on_import_failed(self, message: str) -> None:
-        self._worker = None
-        self.import_button.setEnabled(True)
+    @Slot(int, str)
+    def _on_import_failed(self, generation: int, message: str) -> None:
+        if not self._is_current_import(generation):
+            return
         self.status.setText("导入失败：" + message)
         self.import_failed.emit(message)
+
+    @Slot(int)
+    def _on_import_cancelled(self, generation: int) -> None:
+        if generation != self._worker_generation:
+            return
+        if self._pending_worker_message:
+            self.status.setText(self._pending_worker_message)
+        else:
+            self.status.setText("导入已取消；先前有效数据保持不变。")
+
+    @Slot(int)
+    def _on_import_finished(self, generation: int) -> None:
+        # Even invalidated workers must release their slot before another import
+        # starts; only this worker's own generation may clear the active state.
+        if generation != self._worker_generation:
+            return
+        pending_message = self._pending_worker_message
+        self._worker = None
+        self._worker_generation = None
+        self._import_token = None
+        self._pending_worker_message = ""
+        if pending_message:
+            if pending_message.startswith("已请求取消导入"):
+                self.status.setText("导入已取消；先前有效数据保持不变。")
+            else:
+                reason = pending_message.split("；", 1)[0]
+                self.status.setText(f"{reason}；后台读取已结束，本次结果未安装。")
+        self.cancel_import_button.setEnabled(False)
+        self.import_button.setEnabled(not self._external_busy)
+        self.import_state_changed.emit(False, "")
+        self.import_idle.emit()
 
     def analysis_metadata(self) -> dict[str, Any]:
         if self._last_revision is None:

@@ -18,7 +18,7 @@ from typing import Any
 CONFIG_SCHEMA = "pyeyedata.diagnostic-config/v1"
 EVIDENCE_SCHEMA = "pyeyedata.diagnostic-evidence/v1"
 MAX_CONFIG_BYTES = 64 * 1024
-SCENARIOS = frozenset({"gui-startup", "synthetic-pipeline", "open-archive"})
+SCENARIOS = frozenset({"gui-startup", "synthetic-pipeline", "open-archive", "reliability-smoke"})
 _DEMO_INPUTS = {
     "signals.csv": "demo/SYNTHETIC_ONLY_A_low_rate_signals.csv",
     "segments.csv": "demo/SYNTHETIC_ONLY_A_segments.csv",
@@ -65,7 +65,9 @@ def _read_config(path_text: str) -> dict[str, Any]:
     if value.get("schema") != CONFIG_SCHEMA:
         raise DiagnosticConfigError(f"schema must be {CONFIG_SCHEMA!r}")
     if scenario not in SCENARIOS:
-        raise DiagnosticConfigError("scenario must be gui-startup, synthetic-pipeline, or open-archive")
+        raise DiagnosticConfigError(
+            "scenario must be gui-startup, synthetic-pipeline, open-archive, or reliability-smoke"
+        )
     if value.get("display") not in {"native", "offscreen"}:
         raise DiagnosticConfigError("display must be 'native' or 'offscreen'")
     return value
@@ -114,6 +116,17 @@ def _wait_for_idle(app: Any, manager: Any, *, timeout_seconds: float = 180.0) ->
         if time.monotonic() >= deadline:
             manager.cancel()
             raise TimeoutError("Diagnostic task exceeded its fixed 180-second wait bound")
+        time.sleep(0.01)
+    app.processEvents()
+
+
+def _wait_for_condition(app: Any, predicate: Any, description: str,
+                        *, timeout_seconds: float = 60.0) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while not predicate():
+        app.processEvents()
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"Timed out waiting for {description}")
         time.sleep(0.01)
     app.processEvents()
 
@@ -992,6 +1005,348 @@ def _run_open_archive(app: Any, window: Any, config: dict[str, Any],
     }
 
 
+def _run_reliability_smoke(app: Any, window: Any, workspace: Path,
+                           evidence: dict[str, Any]) -> None:
+    """Exercise the fixed 0.9.1 reliability paths through product-owned APIs."""
+    import pandas as pd
+
+    from pyeyedata.contracts import AnalysisBundle
+    from pyeyedata.exports import create_table_export_request, export_table
+    from pyeyedata.gui.models import RunRecord, RunSnapshot
+    from pyeyedata.gui.presets import load_custom_preset, save_custom_preset
+    from pyeyedata.processing import ProcessingConfig, ProcessingError
+    from PySide6.QtWidgets import QDialog
+
+    input_path = workspace / "reliability-import.csv"
+    pd.DataFrame({
+        "subject_id": ["synthetic-r01", "synthetic-r01", "synthetic-r01"],
+        "session_id": ["session-1"] * 3,
+        "time_s": [0.0, 0.01, 0.02],
+        "gaze_x": [1.0, 2.0, 3.0],
+        "gaze_y": [2.0, 3.0, 4.0],
+    }).to_csv(input_path, index=False)
+
+    page = window.import_page
+    panel = page.sources["signals"]
+    panel.path_edit.setText(str(input_path))
+    previews: list[Any] = []
+    preview_failures: list[str] = []
+
+    def on_preview(role: str, frame: Any) -> None:
+        if role == "signals":
+            previews.append(frame)
+
+    def on_preview_failed(role: str, message: str) -> None:
+        if role == "signals":
+            preview_failures.append(message)
+
+    panel.preview_loaded.connect(on_preview)
+    panel.preview_failed.connect(on_preview_failed)
+    panel.request_preview()
+    _wait_for_condition(
+        app, lambda: bool(previews or preview_failures), "fixed reliability import preview",
+    )
+    panel.preview_loaded.disconnect(on_preview)
+    panel.preview_failed.disconnect(on_preview_failed)
+    if preview_failures or not previews or panel.mapping is None:
+        raise RuntimeError("Fixed reliability import preview failed: " + (preview_failures[-1] if preview_failures else "no preview"))
+
+    for field_name in ("subject_id", "session_id", "time_s", "gaze_x", "gaze_y"):
+        row = next((index for index, spec in enumerate(panel.mapping.fields) if spec.name == field_name), None)
+        if row is None:
+            raise RuntimeError(f"Fixed reliability fixture has no mapping field {field_name}")
+        control = panel.mapping._table.cellWidget(row, 2)
+        selected = control.findData(field_name)
+        if selected < 0:
+            raise RuntimeError(f"Fixed reliability fixture cannot map {field_name}")
+        control.setCurrentIndex(selected)
+
+    coordinate = page.coordinate
+    time_index = coordinate.time_unit.findData("s")
+    if time_index < 0:
+        raise RuntimeError("Time-in-seconds option is missing from the import page")
+    coordinate.time_unit.setCurrentIndex(time_index)
+    coordinate.time_confirmed.setChecked(True)
+    coordinate.precision.setValue(0.01)
+    coordinate.coordinate_unit.setText("px")
+    coordinate.coordinate_frame.setText("synthetic_top_left")
+
+    imported: list[tuple[Any, Any]] = []
+    import_failures: list[str] = []
+
+    def on_import_completed(revision: Any, preview: Any) -> None:
+        imported.append((revision, preview))
+
+    def on_import_failed(message: str) -> None:
+        import_failures.append(str(message))
+
+    page.import_completed.connect(on_import_completed)
+    page.import_failed.connect(on_import_failed)
+    page.start_import()
+    _wait_for_condition(app, lambda: not page.import_active, "initial real reliability import")
+    if import_failures or len(imported) != 1:
+        raise RuntimeError("Initial real reliability import failed: " + (import_failures[-1] if import_failures else "no import result"))
+    prior_revision, prior_preview = imported[0]
+    if (window.session.dataset_revision is None
+            or window.session.dataset_revision.revision_id != prior_revision.revision_id
+            or len(prior_preview) != 3):
+        raise RuntimeError("Initial import did not install its current three-row revision")
+
+    quality = window.quality_page
+    quality.set_processing_config({"baseline_min_length_s": 0.0})
+    valid_config = quality.processing_config()
+    if valid_config["baseline_min_length_s"] != 0.0:
+        raise RuntimeError("GUI processing controls did not preserve baseline_min_length_s=0")
+    try:
+        ProcessingConfig(gaze_max_gap_s=float("nan"))
+    except ProcessingError as exc:
+        invalid_core_message = str(exc)
+    else:
+        raise RuntimeError("ProcessingConfig accepted a non-finite gaze interval")
+    try:
+        window.set_parameters({"processing": {"gaze_max_gap_s": float("nan")}})
+    except (ProcessingError, TypeError, ValueError, OverflowError) as exc:
+        invalid_gui_message = str(exc)
+    else:
+        raise RuntimeError("MainWindow accepted a non-finite processing parameter")
+    if quality.processing_config() != valid_config:
+        raise RuntimeError("Rejected processing parameters partially changed the GUI controls")
+
+    selection = window.metrics_page.selection_spec()
+    parameters, context, scoped_revision = window._snapshot_configuration(selection)
+    schema_version = str(window.bridge.schema()["pipeline_schema_version"])
+    snapshot = RunSnapshot.create(
+        scoped_revision, generation=1, selection=selection, parameters=parameters,
+        context=context, schema_version=schema_version,
+    )
+    snapshot_processing = snapshot.parameter_values().get("processing", {})
+    if snapshot_processing.get("baseline_min_length_s") != 0.0:
+        raise RuntimeError("Legal MainWindow snapshot did not preserve baseline_min_length_s=0")
+
+    metrics = window.metrics_page
+    original_parameters = metrics.all_parameter_values()
+    custom_preset_path = workspace / "reliability-custom-preset.json"
+    preset_parameters = {
+        "individual": {
+            "calibration_window_s": (0.2, 0.8),
+            "multimatch.grouping": False,
+            "reading_direction": "rtl",
+            "scanmatch.substitution_matrix": {"A": 1.0, "B": -0.5},
+        },
+    }
+    metrics.set_parameter_values(preset_parameters, emit=False, strict=True)
+    save_custom_preset(
+        custom_preset_path,
+        name="Reliability smoke",
+        selections=metrics._current_selections(),
+        parameters=metrics.all_parameter_values(),
+        schema=window.bridge.schema(),
+    )
+    loaded_preset = load_custom_preset(custom_preset_path)
+    serialized_window = loaded_preset.parameters["individual"]["calibration_window_s"]
+    prepared_preset = metrics._normalize_parameter_values(loaded_preset.parameters, strict=True)
+    restored_window = prepared_preset["individual"]["calibration_window_s"]
+    if (not isinstance(serialized_window, list)
+            or restored_window != (0.2, 0.8)
+            or type(prepared_preset["individual"]["multimatch.grouping"]) is not bool
+            or prepared_preset["individual"]["multimatch.grouping"] is not False
+            or prepared_preset["individual"]["reading_direction"] != "rtl"
+            or prepared_preset["individual"]["scanmatch.substitution_matrix"] != {"A": 1.0, "B": -0.5}):
+        raise RuntimeError("Custom preset JSON round-trip did not preserve tuple, boolean, enum, or typed mapping values")
+
+    # Exercise the real preset apply path while accepting its review dialog in
+    # this headless smoke; all validation and widget mutation stays product-owned.
+    import pyeyedata.gui.metrics_page as metrics_page_module
+
+    class _AcceptPresetDiff:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def exec(self) -> Any:
+            return QDialog.DialogCode.Accepted
+
+    original_diff_dialog = metrics_page_module._PresetDiffDialog
+    metrics_page_module._PresetDiffDialog = _AcceptPresetDiff
+    metrics_signals_were_blocked = metrics.blockSignals(True)
+    try:
+        if not metrics._apply_preset(loaded_preset):
+            raise RuntimeError("A valid custom preset was not applied")
+    finally:
+        metrics.blockSignals(metrics_signals_were_blocked)
+        metrics_page_module._PresetDiffDialog = original_diff_dialog
+    applied_preset_values = metrics.all_parameter_values()
+    if (applied_preset_values["individual"]["calibration_window_s"] != (0.2, 0.8)
+            or applied_preset_values["individual"]["multimatch"]["grouping"] is not False
+            or applied_preset_values["individual"]["reading_direction"] != "rtl"
+            or applied_preset_values["individual"]["scanmatch"]["substitution_matrix"] != {"A": 1.0, "B": -0.5}):
+        raise RuntimeError("Applying a loaded custom preset changed a typed value or its Python type")
+
+    rejected_preset_inputs: list[str] = []
+    for label, invalid_parameters in (
+        ("unknown-empty-namespace", {"individual": {"future_namespace": {}}}),
+        ("malformed-float-mapping", {"individual": {
+            "multimatch.grouping": True,
+            "scanmatch.substitution_matrix": {"A": "not-a-float"},
+        }}),
+    ):
+        try:
+            metrics.set_parameter_values(invalid_parameters, emit=False, strict=True)
+        except (TypeError, ValueError):
+            rejected_preset_inputs.append(label)
+        else:
+            raise RuntimeError(f"Preset input {label} was accepted")
+        if metrics.all_parameter_values() != applied_preset_values:
+            raise RuntimeError(f"Rejected preset input {label} partially changed parameter controls")
+
+    group_page = window.group_page
+    original_group_ids = group_page._selected_group_metric_ids or ()
+    original_group_mode = group_page.mode_combo.currentData()
+    group_page.set_group_metric_ids(("group.lagged_correlation",))
+    group_page.mode_combo.setCurrentIndex(group_page.mode_combo.findData("individual"))
+    lag_step = group_page._forms["lag"].editors["lag_step_s"]
+    lag_step._enabled.setChecked(True)
+    lag_step._editor.setText("-")
+    if group_page.parameter_tabs.isEnabled():
+        raise RuntimeError("Group parameter editors remained enabled in individual mode")
+    group_page.set_group_metric_ids(("group.windowed_synchrony",))
+    group_page.set_group_metric_ids(("group.lagged_correlation",))
+    preserved_lag_step = group_page._forms["lag"].editors["lag_step_s"]
+    group_draft_preserved = (preserved_lag_step._editor.text() == "-"
+                             and preserved_lag_step._enabled.isChecked())
+    if not group_draft_preserved:
+        raise RuntimeError("Selection changes discarded an incomplete disabled group parameter draft")
+    if group_page.configuration_values(include_group=False) != {"group": {}, "metadata": {}}:
+        raise RuntimeError("An inactive group draft blocked an individual-only configuration")
+    group_page.mode_combo.setCurrentIndex(group_page.mode_combo.findData("group"))
+    try:
+        group_page.configuration_values(include_group=True)
+    except (TypeError, ValueError):
+        active_group_draft_rejected = True
+    else:
+        raise RuntimeError("Enabling group analysis accepted the malformed active group parameter draft")
+    preserved_lag_step._enabled.setChecked(False)
+    preserved_lag_step._editor.clear()
+    group_page.set_group_metric_ids(original_group_ids)
+    group_page.mode_combo.setCurrentIndex(group_page.mode_combo.findData(original_group_mode))
+    metrics.set_parameter_values(original_parameters, emit=False, strict=True)
+
+    cancellation: list[dict[str, Any]] = []
+
+    def cancel_after_worker_progress(percent: int, message: str) -> None:
+        if message == "读取与规范化：主要信号" and not cancellation:
+            worker_generation = page._worker_generation
+            was_active = page.import_active
+            accepted = page.cancel_import()
+            cancellation.append({
+                "percent": int(percent), "message": message,
+                "worker_generation": worker_generation,
+                "request_generation_after_cancel": page._request_generation,
+                "was_active": was_active, "cancel_accepted": bool(accepted),
+            })
+
+    published_before_cancel = len(imported)
+    page.import_progress.connect(cancel_after_worker_progress)
+    page.start_import()
+    _wait_for_condition(app, lambda: not page.import_active, "cancelled reliability import completion")
+    page.import_progress.disconnect(cancel_after_worker_progress)
+    if not cancellation or not cancellation[0]["was_active"] or not cancellation[0]["cancel_accepted"]:
+        raise RuntimeError("Real import worker progress did not accept the fixed cooperative cancellation")
+    if (cancellation[0]["request_generation_after_cancel"] == cancellation[0]["worker_generation"]
+            or len(imported) != published_before_cancel
+            or page._last_revision is None
+            or page._last_revision.revision_id != prior_revision.revision_id
+            or window.session.dataset_revision is None
+            or window.session.dataset_revision.revision_id != prior_revision.revision_id):
+        raise RuntimeError("Cancelled import published a stale result or discarded the prior valid revision")
+
+    bundle = AnalysisBundle(
+        tables={"diagnostic_reliability": pd.DataFrame({"value": [3.3], "unit": ["mm"]})},
+        metadata={"execution_status": "complete"},
+    )
+    record = RunRecord.from_bundle(snapshot, bundle)
+    export_path = workspace / "reliability-committed.csv"
+    request = create_table_export_request(
+        record, "diagnostic_reliability", export_path, file_format="csv",
+    )
+    operation_results: list[tuple[int, Any]] = []
+    operation_failures: list[str] = []
+    operation_cancellations: list[int] = []
+    window.operation_manager.completed.connect(
+        lambda generation, result: operation_results.append((generation, result))
+    )
+    window.operation_manager.failed.connect(
+        lambda generation, message: operation_failures.append(f"{generation}: {message}")
+    )
+    window.operation_manager.cancelled.connect(operation_cancellations.append)
+
+    def export_then_request_late_cancel(token: Any, progress: Any) -> Any:
+        result = export_table(record, request, cancel=token, progress=progress)
+        token.cancel()
+        return result
+
+    window._start_operation("export", export_then_request_late_cancel)
+    _wait_for_condition(
+        app, lambda: not window.operation_manager.active, "committed reliability CSV export",
+    )
+    if operation_failures or operation_cancellations or len(operation_results) != 1:
+        raise RuntimeError("Committed export was not delivered as success: " + "; ".join(operation_failures))
+    export_result = operation_results[0][1]
+    if (export_result.commit_complete is not True
+            or export_result.path != export_path
+            or not export_path.is_file()
+            or not export_result.audit_path.is_file()
+            or _sha256_bytes(export_path.read_bytes()) != export_result.sha256):
+        raise RuntimeError("Committed export receipt does not match the promoted CSV bytes")
+    if str(export_path) not in window.status_label.text():
+        raise RuntimeError("MainWindow did not preserve the committed export destination in its success status")
+
+    evidence["reliability_smoke"] = {
+        "status": "pass",
+        "parameter_validation": {
+            "nonfinite_core_parameter_rejected": True,
+            "nonfinite_gui_parameter_rejected": True,
+            "error": invalid_gui_message,
+            "core_error": invalid_core_message,
+            "rejected_parameter_left_controls_unchanged": True,
+            "valid_snapshot_baseline_min_length_s": snapshot_processing["baseline_min_length_s"],
+            "snapshot_fingerprint": snapshot.config_fingerprint,
+        },
+        "custom_preset_roundtrip": {
+            "json_tuple_serialized_as_array": isinstance(serialized_window, list),
+            "tuple_restored_from_live_schema": restored_window == (0.2, 0.8),
+            "boolean_false_preserved": prepared_preset["individual"]["multimatch.grouping"] is False,
+            "enum_preserved": prepared_preset["individual"]["reading_direction"] == "rtl",
+            "typed_mapping_preserved": prepared_preset["individual"]["scanmatch.substitution_matrix"] == {"A": 1.0, "B": -0.5},
+            "loaded_preset_applied": True,
+            "applied_values_preserved": True,
+            "invalid_inputs_rejected_before_mutation": rejected_preset_inputs,
+        },
+        "disabled_group_draft": {
+            "selection_change_preserved_raw_text": group_draft_preserved,
+            "inactive_group_configuration_accepted": True,
+            "active_group_configuration_rejected_invalid_value": active_group_draft_rejected,
+        },
+        "import_lifecycle": {
+            "normalization_api_import_rows": len(prior_preview),
+            "cancelled_from_real_worker_progress": cancellation[0],
+            "public_result_count_before_cancel": published_before_cancel,
+            "public_result_count_after_cancel": len(imported),
+            "prior_revision_retained": prior_revision.revision_id,
+            "stale_result_not_published": len(imported) == published_before_cancel,
+        },
+        "committed_export": {
+            "format": "csv",
+            "operation_manager_result": "completed",
+            "late_cancel_requested_after_export_return": True,
+            "commit_complete": export_result.commit_complete,
+            "destination": export_result.path.name,
+            "sha256": export_result.sha256,
+            "audit_sidecar": export_result.audit_path.name,
+            "success_status_contains_destination": True,
+        },
+    }
+
+
 def run_diagnostic(config_path: str) -> int:
     """Run one allowlisted scenario and write evidence below its workspace."""
     workspace: Path | None = None
@@ -1035,6 +1390,8 @@ def run_diagnostic(config_path: str) -> int:
             _run_pipeline_scenario(app, window, workspace, evidence)
         elif config["scenario"] == "open-archive":
             _run_open_archive(app, window, config, evidence)
+        elif config["scenario"] == "reliability-smoke":
+            _run_reliability_smoke(app, window, workspace, evidence)
         evidence["status"] = "pass"
     except Exception as exc:
         failure = exc

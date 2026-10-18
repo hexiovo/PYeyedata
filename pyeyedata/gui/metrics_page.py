@@ -51,6 +51,7 @@ from .presets import (
     save_custom_preset,
     schema_version,
     selection_diff,
+    validate_preset_definition,
 )
 
 
@@ -686,6 +687,19 @@ class MetricsPage(QWidget):
         header.addWidget(self.restore_button)
         root.addLayout(header)
 
+        self.parameter_error = QLabel(self)
+        self.parameter_error.setObjectName("parameterErrorSummary")
+        self.parameter_error.setWordWrap(True)
+        self.parameter_error.setStyleSheet("QLabel { color: #8b1e1e; background: #fff0f0; padding: 6px; }")
+        self.parameter_error.hide()
+        self.parameter_error_button = QPushButton("定位并修改", self)
+        self.parameter_error_button.setEnabled(False)
+        self.parameter_error_button.clicked.connect(self._focus_parameter_error)
+        error_row = QHBoxLayout()
+        error_row.addWidget(self.parameter_error, 1)
+        error_row.addWidget(self.parameter_error_button)
+        root.addLayout(error_row)
+
         self.tabs = QTabWidget(self)
         self.tabs.addTab(self.catalogue, "指标目录")
         self.parameter_tabs = QTabWidget(self.tabs)
@@ -793,39 +807,145 @@ class MetricsPage(QWidget):
             run_advanced=bool(self._run_enabled["advanced"]),
         )
 
-    def parameter_values(self) -> dict[str, Any]:
-        raw = {module: form.values() for module, form in self._forms.items()}
-        output: dict[str, Any] = {}
-        individual_values = raw.get("individual", {})
-        individual: dict[str, Any] = {
-            "enable_experimental": bool(self._allow_experimental["individual"]),
-            "max_gap_s": individual_values.get("max_gap_s"),
-        }
-        for definition in individual_parameter_fields(self._selected["individual"]):
-            name = definition["name"]
-            path = definition["config_path"]
-            value = individual_values.get(name, definition.get("default"))
-            self._set_config_path(individual, path, value, expected_module="individual")
-        if self._run_enabled["individual"] or self._selected["individual"]:
-            output["individual"] = individual
+    def _report_parameter_error(self, message: str, *, module: str | None = None,
+                                field: str | None = None) -> None:
+        text = str(message)
+        if module not in MODULES:
+            module = None
+        if module is None or field is None:
+            for candidate_module, form in self._forms.items():
+                match = next((name for name in sorted(form.editors, key=len, reverse=True)
+                              if text.startswith(name + ":") or text.startswith(name + " ")
+                              or f"{candidate_module}.{name}:" in text), None)
+                if match is not None:
+                    module, field = candidate_module, match
+                    break
+        reason = text
+        if module and field:
+            for prefix in (field + ":", field + " ", module + "." + field + ":"):
+                if reason.startswith(prefix):
+                    reason = reason[len(prefix):].strip()
+                    break
+            control = self._forms.get(module).editors.get(field) if module in self._forms else None
+            hint = control._range_hint() if control is not None else ""
+            range_text = f"（{hint}）" if hint else ""
+            location = f"{_MODULE_LABELS[module]} / {field}{range_text}"
+            self.parameter_error.setText(f"参数错误：{location}：{reason}。请按显示的类型、单位和范围修正。")
+            self._parameter_error_location = (module, field)
+            self.parameter_error_button.setEnabled(True)
+        else:
+            self.parameter_error.setText(f"参数错误：{reason}。请检查当前方法的类型、单位和范围。")
+            self._parameter_error_location = None
+            self.parameter_error_button.setEnabled(False)
+        self.parameter_error.show()
 
-        group_values = raw.get("group", {})
-        group: dict[str, Any] = {"enable_experimental": bool(self._allow_experimental["group"])}
-        if group_values.get("enable_experimental") is not None:
-            group["enable_experimental"] = bool(group_values["enable_experimental"])
-        if self._run_enabled["group"] or self._selected["group"]:
-            output["group"] = group
-        advanced_values = raw.get("advanced", {})
-        advanced_entries = {entry["metric_id"]: entry for entry in catalogue_for_module(self._schema, "advanced")}
-        wanted: set[str] = set()
-        for metric_id in self._selected["advanced"]:
-            entry = advanced_entries.get(metric_id, {})
-            for definition in entry.get("parameter_definitions", ()):
-                if isinstance(definition, Mapping) and isinstance(definition.get("name"), str):
-                    wanted.add(definition["name"])
-        if wanted:
-            output["advanced"] = {name: advanced_values[name] for name in wanted if name in advanced_values}
-        return output
+    def _clear_parameter_error(self) -> None:
+        self._parameter_error_location = None
+        self.parameter_error.clear()
+        self.parameter_error.hide()
+        self.parameter_error_button.setEnabled(False)
+
+    def _focus_parameter_error(self) -> None:
+        if self._parameter_error_location is None:
+            return
+        module, field = self._parameter_error_location
+        self.set_module(module)
+        self.tabs.setCurrentWidget(self.parameter_tabs)
+        form_index = MODULES.index(module)
+        if form_index < self.parameter_tabs.count():
+            self.parameter_tabs.setCurrentIndex(form_index)
+        form = self._forms.get(module)
+        if form is not None:
+            form.focus_field(field)
+
+    def parameter_values(self) -> dict[str, Any]:
+        """Read only fields used by enabled modules and their selected methods."""
+        output: dict[str, Any] = {}
+        active_module: str | None = None
+        active_field: str | None = None
+        try:
+            if self._run_enabled["individual"]:
+                active_module = "individual"
+                selected = self._selected["individual"]
+                definitions = individual_parameter_fields(selected) if selected else []
+                names = {definition["name"] for definition in definitions}
+                if selected:
+                    names.add("max_gap_s")
+                values = self._forms["individual"].values(names)
+                individual: dict[str, Any] = {
+                    "enable_experimental": bool(self._allow_experimental["individual"]),
+                }
+                if "max_gap_s" in values:
+                    individual["max_gap_s"] = values["max_gap_s"]
+                for definition in definitions:
+                    name = definition["name"]
+                    active_field = name
+                    self._set_config_path(
+                        individual, definition["config_path"], values[name], expected_module="individual"
+                    )
+                output["individual"] = individual
+
+            if self._run_enabled["group"]:
+                output["group"] = {"enable_experimental": bool(self._allow_experimental["group"])}
+
+            if self._run_enabled["advanced"] and self._selected["advanced"]:
+                active_module = "advanced"
+                advanced_entries = {
+                    entry["metric_id"]: entry for entry in catalogue_for_module(self._schema, "advanced")
+                }
+                wanted: set[str] = set()
+                for metric_id in self._selected["advanced"]:
+                    entry = advanced_entries.get(metric_id, {})
+                    for definition in entry.get("parameter_definitions", ()):
+                        if isinstance(definition, Mapping):
+                            name = definition.get("name")
+                            if isinstance(name, str):
+                                wanted.add(name if name.startswith("advanced.") else "advanced." + name)
+                values = self._forms["advanced"].values(sorted(wanted))
+                output["advanced"] = values
+            self._clear_parameter_error()
+            return output
+        except (TypeError, ValueError, OverflowError) as exc:
+            message = str(exc)
+            if active_module == "individual" and active_field is None:
+                match = next((name for name in self._forms["individual"].editors
+                              if message.startswith(name + ":")), None)
+                active_field = match
+            if active_module == "advanced":
+                match = next((name for name in self._forms["advanced"].editors
+                              if message.startswith(name + ":")), None)
+                active_field = match
+            self._report_parameter_error(message, module=active_module, field=active_field)
+            raise
+
+    def all_parameter_values(self) -> dict[str, Any]:
+        """Serialize and validate every draft field for a complete custom preset."""
+        raw: dict[str, dict[str, Any]] = {}
+        active_module: str | None = None
+        try:
+            for module, form in self._forms.items():
+                active_module = module
+                raw[module] = form.values()
+            output: dict[str, Any] = {}
+            individual_values = raw.get("individual", {})
+            individual: dict[str, Any] = {
+                "enable_experimental": bool(self._allow_experimental["individual"]),
+                "max_gap_s": individual_values.get("max_gap_s"),
+            }
+            for definition in individual_parameter_fields():
+                name = definition["name"]
+                self._set_config_path(
+                    individual, definition["config_path"], individual_values[name],
+                    expected_module="individual",
+                )
+            output["individual"] = individual
+            output["group"] = dict(raw.get("group", {}))
+            output["advanced"] = dict(raw.get("advanced", {}))
+            self._clear_parameter_error()
+            return output
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._report_parameter_error(str(exc), module=active_module)
+            raise
 
     @staticmethod
     def _set_config_path(
@@ -842,22 +962,58 @@ class MetricsPage(QWidget):
             current = child
         current[parts[-1]] = value
 
-    def set_parameter_values(self, values: Mapping[str, Any], *, emit: bool = True) -> None:
-        for module, form in self._forms.items():
-            section = values.get(module, {})
-            if module in {"individual", "group"} and isinstance(section, Mapping):
-                nested_roots = {"individual": ("multimatch", "scanmatch"),
-                                "group": ("crqa", "multimatch", "scanmatch")}[module]
-                section = dict(section)
-                for root in nested_roots:
-                    nested = section.pop(root, None)
-                    if isinstance(nested, Mapping):
-                        section.update({f"{root}.{key}": value for key, value in nested.items()})
-            elif module == "advanced" and isinstance(section, Mapping):
-                section = {str(key) if str(key).startswith("advanced.") else f"advanced.{key}": value
-                           for key, value in section.items()}
-            if isinstance(section, Mapping):
-                form.set_values(section)
+    def _normalize_parameter_values(self, values: Mapping[str, Any], *, strict: bool) -> dict[str, dict[str, Any]]:
+        if not isinstance(values, Mapping):
+            raise TypeError("预设 parameters 必须是对象")
+        if strict:
+            unknown_modules = set(values) - set(MODULES)
+            if unknown_modules:
+                raise ValueError("parameters 包含未知模块：" + ", ".join(sorted(map(str, unknown_modules))))
+        prepared: dict[str, dict[str, Any]] = {}
+        for module in MODULES:
+            if module not in values:
+                continue
+            section = values[module]
+            if not isinstance(section, Mapping):
+                raise ValueError(f"parameters.{module} 必须是对象")
+            form = self._forms[module]
+            editors = form.editors
+            known = set(editors)
+            flattened: dict[str, Any] = {}
+
+            def collect(part: Mapping[str, Any], prefix: str = "") -> None:
+                for raw_name, value in part.items():
+                    if not isinstance(raw_name, str) or not raw_name:
+                        raise ValueError(f"parameters.{module} 包含无效字段名")
+                    name = f"{prefix}.{raw_name}" if prefix else raw_name
+                    if module == "advanced" and name not in known and f"advanced.{name}" in known:
+                        name = f"advanced.{name}"
+                    if name in known:
+                        flattened[name] = editors[name].normalize_serialized_value(value)
+                    elif isinstance(value, Mapping):
+                        if not any(field.startswith(name + ".") for field in known):
+                            if strict:
+                                raise ValueError(f"parameters.{module}.{name} 是未知字段")
+                            continue
+                        collect(value, name)
+                    elif strict:
+                        raise ValueError(f"parameters.{module}.{name} 是未知字段")
+
+            collect(section)
+            prepared[module] = form.validate_values(flattened, strict=True)
+        return prepared
+
+    def set_parameter_values(self, values: Mapping[str, Any], *, emit: bool = True,
+                             strict: bool = False) -> None:
+        try:
+            prepared = self._normalize_parameter_values(values, strict=strict)
+        except (TypeError, ValueError) as exc:
+            self._report_parameter_error(str(exc))
+            raise
+        # Every target module is checked above, so widget changes below cannot
+        # leave half of a multi-module preset restored.
+        for module, section in prepared.items():
+            self._forms[module].set_values(section, strict=True)
         if emit:
             self._emit_parameters_changed()
 
@@ -902,6 +1058,7 @@ class MetricsPage(QWidget):
             widget.deleteLater()
         self._forms: dict[str, TypedParameterForm] = {}
         self._defaults_by_module: dict[str, dict[str, Any]] = {}
+        self._parameter_error_location: tuple[str, str] | None = None
         schema_typed = self._schema.get("typed_parameters", {})
         for module in MODULES:
             if module == "advanced":
@@ -1010,21 +1167,28 @@ class MetricsPage(QWidget):
         return dict(self._allow_experimental)
 
     def _apply_preset(self, preset: PresetDefinition) -> bool:
-        current = self._current_selections()
-        resolution = resolve_preset(
-            preset, self._schema, current_selections=current, availability=self._availability,
-            allow_experimental=self._experimental_map(),
-        )
+        try:
+            validate_preset_definition(preset)
+            prepared_parameters = self._normalize_parameter_values(preset.parameters, strict=True)
+            current = self._current_selections()
+            resolution = resolve_preset(
+                preset, self._schema, current_selections=current, availability=self._availability,
+                allow_experimental=self._experimental_map(),
+            )
+        except (TypeError, ValueError, KeyError) as exc:
+            self._report_parameter_error(str(exc))
+            return False
         diff = selection_diff(current, resolution.selections, preset.target_modules)
         dialog = _PresetDiffDialog(preset, resolution, diff, self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
+        for module, parameters in prepared_parameters.items():
+            self._forms[module].set_values(parameters, strict=True)
         self._selected = {module: set(resolution.selections.get(module, ())) for module in MODULES}
-        if resolution.parameters:
-            self.set_parameter_values(resolution.parameters, emit=False)
         for module in preset.target_modules:
             self._run_enabled[module] = bool(self._selected[module])
         self._sync_current_module()
+        self._clear_parameter_error()
         self._emit_selection()
         self._emit_parameters_changed()
         self.preflight_requested.emit()
@@ -1046,8 +1210,9 @@ class MetricsPage(QWidget):
             return
         try:
             save_custom_preset(path, name=name.strip(), selections=self._current_selections(),
-                               parameters=self.parameter_values(), schema=self._schema)
+                               parameters=self.all_parameter_values(), schema=self._schema)
         except (OSError, TypeError, ValueError) as exc:
+            self._report_parameter_error(str(exc))
             QMessageBox.critical(self, "保存失败", str(exc))
 
     def _load_custom_preset(self) -> None:
@@ -1057,6 +1222,7 @@ class MetricsPage(QWidget):
         try:
             preset = load_custom_preset(path)
         except (OSError, ValueError, json.JSONDecodeError) as exc:  # type: ignore[name-defined]
+            self._report_parameter_error(str(exc))
             QMessageBox.critical(self, "预设无法读取", str(exc))
             return
         self._apply_preset(preset)
@@ -1074,6 +1240,9 @@ class MetricsPage(QWidget):
 
     def _on_experimental_changed(self, module: str, enabled: bool) -> None:
         self._allow_experimental[module] = bool(enabled)
+        form = self._forms.get(module)
+        if form is not None and "enable_experimental" in form.editors:
+            form.set_values({"enable_experimental": bool(enabled)}, strict=True)
         self._emit_parameters_changed()
         self.preflight_requested.emit()
 

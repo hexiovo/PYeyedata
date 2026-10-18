@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from decimal import Decimal
 from math import ceil, isfinite
+import numbers
 from typing import Any, Iterable, Mapping
 
 import numpy as np
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QSpinBox,
     QTabWidget,
@@ -224,13 +226,20 @@ class QualityPage(QWidget):
         self._context_tables: dict[str, pd.DataFrame] = {}
         self._context_manifest: list[dict[str, Any]] = []
         self._last_outcome: Any = None
+        self._parameter_error_name: str | None = None
         self.status = QLabel("质量统计和图表将在公共 pipeline 前检完成后显示；这里不会本地重算科学结果。", self)
         self.status.setWordWrap(True)
+        self.parameter_error_button = QPushButton("定位参数", self)
+        self.parameter_error_button.setEnabled(False)
+        self.parameter_error_button.clicked.connect(self._focus_parameter_error)
         self._build_controls(defaults)
         self._build_results()
         self._connect_controls()
         layout = QVBoxLayout(self)
-        layout.addWidget(self.status)
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.status, 1)
+        status_row.addWidget(self.parameter_error_button)
+        layout.addLayout(status_row)
         layout.addWidget(self.controls_box)
         layout.addWidget(self.tabs, 1)
         self._emit_configuration()
@@ -271,20 +280,20 @@ class QualityPage(QWidget):
         self.baseline_end.setEnabled(False)
         self.baseline_coverage = self._double(0.01, 1.0, defaults.baseline_min_coverage, 2)
         self.baseline_coverage.setEnabled(False)
-        self.baseline_length = self._double(0.000001, 1000000.0, defaults.baseline_min_length_s, 6)
+        self.baseline_length = self._double(0.0, 1000000.0, defaults.baseline_min_length_s, 6)
         self.baseline_length.setEnabled(False)
 
         box = QGroupBox("共享预处理配置（按后端 ProcessingConfig 执行）", self)
         form = QFormLayout(box)
         form.addRow("时间顺序", self.order_policy)
         form.addRow("重复时间", self.duplicate_policy)
-        form.addRow("支持间隔倍数", self.gap_factor)
-        form.addRow(self.use_max_gap, self.max_gap)
-        form.addRow(self.interpolate_gaze, self.gaze_gap)
-        form.addRow(self.interpolate_pupil, self.pupil_gap)
-        form.addRow("连续缺失上限（采样点）", self.max_missing)
-        form.addRow(self.use_lowpass, self.lowpass_cutoff)
-        form.addRow("低通阶数", self.lowpass_order)
+        form.addRow("支持间隔倍数（> 1）", self.gap_factor)
+        form.addRow(self.use_max_gap, self._with_unit(self.max_gap, "秒；> 0"))
+        form.addRow(self.interpolate_gaze, self._with_unit(self.gaze_gap, "秒；> 0"))
+        form.addRow(self.interpolate_pupil, self._with_unit(self.pupil_gap, "秒；> 0"))
+        form.addRow("连续缺失上限（采样点；整数 ≥ 1）", self.max_missing)
+        form.addRow(self.use_lowpass, self._with_unit(self.lowpass_cutoff, "Hz；> 0"))
+        form.addRow("低通阶数（整数 ≥ 1）", self.lowpass_order)
         baseline_range = QHBoxLayout()
         baseline_range.addWidget(QLabel("起点秒", self))
         baseline_range.addWidget(self.baseline_start)
@@ -292,11 +301,12 @@ class QualityPage(QWidget):
         baseline_range.addWidget(self.baseline_end)
         baseline_range.addStretch(1)
         form.addRow(self.use_baseline, baseline_range)
-        form.addRow("基线最低覆盖率", self.baseline_coverage)
-        form.addRow("基线最短时长（秒）", self.baseline_length)
+        form.addRow("基线最低覆盖率（0, 1]", self.baseline_coverage)
+        form.addRow("基线最短时长（秒；0 不额外限制）", self.baseline_length)
         note = QLabel(
             "默认插值、低通和基线校正均关闭。未开放未验证插值边界绕过；前检由现有 TaskManager 后台调用公共 preflight，"
-            "滤波 Nyquist、缺口及条件可用性以实际后端返回为准。源信号始终只读。",
+            "滤波 Nyquist、缺口及条件可用性以实际后端返回为准。基线最短时长设为 0 时不额外限制正时长基线窗；"
+            "基线窗口自身仍必须非空且满足最低覆盖率。源信号始终只读。",
             box,
         )
         note.setWordWrap(True)
@@ -310,6 +320,54 @@ class QualityPage(QWidget):
         control.setDecimals(decimals)
         control.setValue(value)
         return control
+
+    @staticmethod
+    def _with_unit(control: QWidget, unit: str) -> QWidget:
+        row = QHBoxLayout()
+        row.addWidget(control, 1)
+        row.addWidget(QLabel(unit, control.parentWidget()))
+        container = QWidget(control.parentWidget())
+        container.setLayout(row)
+        return container
+
+    def _report_parameter_error(self, message: str) -> None:
+        text = str(message)
+        candidates = (
+            "order_policy", "duplicate_policy", "support_gap_factor", "support_gap_max_s",
+            "interpolate_gaze", "interpolate_pupil", "gaze_max_gap_s", "pupil_max_gap_s",
+            "max_missing_samples", "lowpass_cutoff_hz", "lowpass_order",
+            "pupil_baseline_window_s", "baseline_min_coverage", "baseline_min_length_s",
+        )
+        name = next((item for item in candidates if item in text), None)
+        self._parameter_error_name = name
+        self.status.setText(f"处理参数无效：{text}。请按字段单位和范围修正。")
+        self.parameter_error_button.setEnabled(name is not None)
+
+    def _clear_parameter_error(self) -> None:
+        self._parameter_error_name = None
+        self.parameter_error_button.setEnabled(False)
+
+    def _focus_parameter_error(self) -> None:
+        name = self._parameter_error_name
+        controls = {
+            "order_policy": self.order_policy,
+            "duplicate_policy": self.duplicate_policy,
+            "support_gap_factor": self.gap_factor,
+            "support_gap_max_s": self.max_gap,
+            "interpolate_gaze": self.interpolate_gaze,
+            "interpolate_pupil": self.interpolate_pupil,
+            "gaze_max_gap_s": self.gaze_gap,
+            "pupil_max_gap_s": self.pupil_gap,
+            "max_missing_samples": self.max_missing,
+            "lowpass_cutoff_hz": self.lowpass_cutoff,
+            "lowpass_order": self.lowpass_order,
+            "pupil_baseline_window_s": self.baseline_start,
+            "baseline_min_coverage": self.baseline_coverage,
+            "baseline_min_length_s": self.baseline_length,
+        }
+        control = controls.get(name)
+        if control is not None:
+            control.setFocus(Qt.FocusReason.OtherFocusReason)
 
     @staticmethod
     def _validated_processing_config(value: Mapping[str, Any] | ProcessingConfig | None) -> ProcessingConfig:
@@ -335,8 +393,8 @@ class QualityPage(QWidget):
                 raise TypeError(f"processing.{name} must be bool")
         for name in ("max_missing_samples", "lowpass_order"):
             item = getattr(config, name)
-            if isinstance(item, bool) or not isinstance(item, int):
-                raise TypeError(f"processing.{name} must be int")
+            if isinstance(item, (bool, np.bool_)) or not isinstance(item, numbers.Integral):
+                raise TypeError(f"processing.{name} must be an integer")
         for name in (
             "support_gap_factor",
             "gaze_max_gap_s",
@@ -345,19 +403,21 @@ class QualityPage(QWidget):
             "baseline_min_length_s",
         ):
             item = getattr(config, name)
-            if isinstance(item, bool) or not isinstance(item, (int, float)) or not isfinite(float(item)):
-                raise TypeError(f"processing.{name} must be a finite number")
+            if (isinstance(item, (bool, np.bool_)) or not isinstance(item, numbers.Real)
+                    or not isfinite(float(item))):
+                raise TypeError(f"processing.{name} must be a finite real number")
         for name in ("support_gap_max_s", "lowpass_cutoff_hz"):
             item = getattr(config, name)
             if item is not None and (
-                isinstance(item, bool) or not isinstance(item, (int, float)) or not isfinite(float(item))
+                isinstance(item, (bool, np.bool_)) or not isinstance(item, numbers.Real)
+                or not isfinite(float(item))
             ):
                 raise TypeError(f"processing.{name} must be None or a finite number")
         baseline = config.pupil_baseline_window_s
         if baseline is not None:
             if not isinstance(baseline, tuple) or len(baseline) != 2:
                 raise TypeError("processing.pupil_baseline_window_s must be a two-value tuple or None")
-            if any(isinstance(item, bool) or not isinstance(item, (int, float)) or not isfinite(float(item))
+            if any(isinstance(item, (bool, np.bool_)) or not isinstance(item, numbers.Real) or not isfinite(float(item))
                    for item in baseline):
                 raise TypeError("processing.pupil_baseline_window_s values must be finite numbers")
         return config
@@ -372,7 +432,11 @@ class QualityPage(QWidget):
 
     def set_processing_config(self, value: Mapping[str, Any] | ProcessingConfig | None) -> None:
         """Restore a typed backend configuration into the visible controls without emitting edits."""
-        config = self._validated_processing_config(value)
+        try:
+            config = self._validated_processing_config(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._report_parameter_error(str(exc))
+            raise
         defaults = ProcessingConfig()
         combo_values = (
             (self.order_policy, config.order_policy, "order_policy"),
@@ -380,7 +444,9 @@ class QualityPage(QWidget):
         )
         for control, item, name in combo_values:
             if control.findData(item) < 0:
-                raise ValueError(f"processing.{name}={item!r} is not supported by this page")
+                message = f"processing.{name}={item!r} is not supported by this page"
+                self._report_parameter_error(message)
+                raise ValueError(message)
 
         doubles = (
             (self.gap_factor, config.support_gap_factor, "support_gap_factor", 2),
@@ -395,14 +461,39 @@ class QualityPage(QWidget):
         )
         # Validate all representability/range limits before touching the current controls.
         for control, item, name, base_decimals in doubles:
-            number = float(item)
-            decimals = max(base_decimals, -Decimal(str(number)).as_tuple().exponent)
+            try:
+                number = float(item)
+            except (TypeError, ValueError, OverflowError) as exc:
+                message = f"processing.{name}={item!r} cannot be represented by this control"
+                self._report_parameter_error(message)
+                raise ValueError(message) from exc
+            if not isfinite(number) or item != number:
+                message = f"processing.{name}={item!r} cannot be represented exactly by this control"
+                self._report_parameter_error(message)
+                raise ValueError(message)
+            decimals = min(323, max(base_decimals, -Decimal(str(number)).as_tuple().exponent))
             if number < control.minimum() or number > control.maximum():
-                raise ValueError(
-                    f"processing.{name}={item!r} is outside the value range supported by this control"
-                )
+                message = f"processing.{name}={item!r} is outside the value range supported by this control"
+                self._report_parameter_error(message)
+                raise ValueError(message)
             if round(number, decimals) != number:
-                raise ValueError(f"processing.{name} cannot be represented exactly by this control")
+                message = f"processing.{name} cannot be represented exactly by this control"
+                self._report_parameter_error(message)
+                raise ValueError(message)
+
+        integers = (
+            (self.max_missing, config.max_missing_samples, "max_missing_samples"),
+            (self.lowpass_order, config.lowpass_order, "lowpass_order"),
+        )
+        for control, item, name in integers:
+            if item < control.minimum() or item > control.maximum():
+                message = (
+                    f"processing.{name}={item!r} is outside the value range supported by this control "
+                    f"[{control.minimum()}, {control.maximum()}]"
+                )
+                self._report_parameter_error(message)
+                raise ValueError(message)
+        self._clear_parameter_error()
 
         controls = (
             self.order_policy, self.duplicate_policy, self.gap_factor, self.use_max_gap,
@@ -567,10 +658,11 @@ class QualityPage(QWidget):
     def _emit_configuration(self, *_: Any) -> None:
         try:
             self.configuration_changed.emit(self.processing_config())
+            self._clear_parameter_error()
             self.status.setText("处理配置已更新；运行前检查会在现有任务队列中真实执行。")
         except Exception as exc:
             self.configuration_changed.emit({})
-            self.status.setText("处理配置无效：" + str(exc))
+            self._report_parameter_error(str(exc))
 
     def set_dataset(self, revision: DatasetRevision | None) -> None:
         self._dataset_revision = revision

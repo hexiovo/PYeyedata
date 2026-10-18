@@ -128,7 +128,9 @@ class GroupDesignPage(QWidget):
         self._building_members = False
         self._forms: dict[str, TypedParameterForm] = {}
         self._parameter_cache: dict[str, Any] = {}
+        self._parameter_drafts: dict[str, dict[str, Any]] = {}
         self._selected_group_metric_ids: tuple[str, ...] | None = None
+        self._parameter_error_location: tuple[str, str] | None = None
 
         root = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -228,7 +230,13 @@ class GroupDesignPage(QWidget):
         layout.addWidget(self.parameter_tabs, 1)
         self.parameter_status = QLabel("参数尚未校验。", self.parameter_tab)
         self.parameter_status.setWordWrap(True)
-        layout.addWidget(self.parameter_status)
+        parameter_status_row = QHBoxLayout()
+        parameter_status_row.addWidget(self.parameter_status, 1)
+        self.parameter_error_button = QPushButton("定位参数", self.parameter_tab)
+        self.parameter_error_button.setEnabled(False)
+        self.parameter_error_button.clicked.connect(self._focus_parameter_error)
+        parameter_status_row.addWidget(self.parameter_error_button)
+        layout.addLayout(parameter_status_row)
 
     def _rebuild_parameter_forms(self) -> None:
         """Render only definitions tied to selected public group leaves."""
@@ -266,6 +274,10 @@ class GroupDesignPage(QWidget):
             self.parameter_tabs.addTab(panel, title)
             self._forms[name] = form
             form.set_values(self._parameter_cache)
+            form.restore_draft_values({
+                field_name: state for field_name, state in self._parameter_drafts.items()
+                if field_name in form.editors
+            })
         for form in self._forms.values():
             for editor in form.editors.values():
                 for control in (editor, *editor.findChildren(QWidget)):
@@ -279,7 +291,12 @@ class GroupDesignPage(QWidget):
         values = tuple(sorted({str(metric_id) for metric_id in metric_ids if isinstance(metric_id, str)}))
         if values == self._selected_group_metric_ids:
             return
-        self._parameter_cache.update(self._raw_parameter_values())
+        # A disabled group editor can contain an unfinished string (for
+        # example, the user typed a sign but no number yet). Preserve its raw
+        # widget state before changing tabs; asking for parsed values here
+        # would incorrectly block an unrelated individual-only selection.
+        for form in self._forms.values():
+            self._parameter_drafts.update(form.draft_values())
         self._selected_group_metric_ids = values
         self._rebuild_parameter_forms()
         self._on_parameters_changed()
@@ -797,16 +814,74 @@ class GroupDesignPage(QWidget):
             values.update(form.values())
         return values
 
+    def _report_parameter_error(self, message: str) -> None:
+        text = str(message)
+        definitions = group_parameter_fields()
+        candidates = sorted(
+            (str(item["name"]) for item in definitions if isinstance(item.get("name"), str)),
+            key=len,
+            reverse=True,
+        )
+        name = next(
+            (candidate for candidate in candidates
+             if text.startswith(candidate + ":") or text.startswith(candidate + " ")
+             or f"group.{candidate}:" in text or f"group.{candidate}=" in text),
+            None,
+        )
+        self._parameter_error_location = None
+        self.parameter_error_button.setEnabled(False)
+        if name is not None:
+            form_name = next((key for key, form in self._forms.items() if name in form.editors), None)
+            if form_name is not None:
+                self._parameter_error_location = (form_name, name)
+                self.parameter_error_button.setEnabled(True)
+        reason = text
+        if name is not None:
+            for prefix in (name + ":", name + " ", f"group.{name}:", f"group.{name}="):
+                if reason.startswith(prefix):
+                    reason = reason[len(prefix):].strip()
+                    break
+            label = _FIELD_LABELS.get(name, name)
+            editor = next((form.editors[name] for form in self._forms.values() if name in form.editors), None)
+            hint = editor._range_hint() if editor is not None else ""
+            range_text = f"（{hint}）" if hint else ""
+            self.parameter_status.setText(f"参数错误：{label} / {name}{range_text}：{reason}。请按字段类型、单位和范围修正。")
+        else:
+            self.parameter_status.setText(f"参数错误：{reason}。请检查群体参数的类型、单位和范围。")
+
+    def _clear_parameter_error(self) -> None:
+        self._parameter_error_location = None
+        self.parameter_error_button.setEnabled(False)
+
+    def _focus_parameter_error(self) -> None:
+        location = self._parameter_error_location
+        if location is None:
+            return
+        form_name, name = location
+        self.tabs.setCurrentWidget(self.parameter_tab)
+        for index in range(self.parameter_tabs.count()):
+            widget = self.parameter_tabs.widget(index)
+            form = self._forms.get(form_name)
+            if form is not None and widget.isAncestorOf(form):
+                self.parameter_tabs.setCurrentIndex(index)
+                form.focus_field(name)
+                return
+
     def parameter_values(self) -> dict[str, Any]:
         """Bind selected typed values to their public group config paths."""
-        raw = self._raw_parameter_values()
-        result: dict[str, Any] = {}
-        definitions = group_parameter_fields(self._selected_group_metric_ids)
-        for definition in definitions:
-            name = definition["name"]
-            value = raw.get(name, self._parameter_cache.get(name, definition.get("default")))
-            self._set_config_path(result, definition["config_path"], value, expected_module="group")
-        return result
+        try:
+            raw = self._raw_parameter_values()
+            result: dict[str, Any] = {}
+            definitions = group_parameter_fields(self._selected_group_metric_ids)
+            for definition in definitions:
+                name = definition["name"]
+                value = raw.get(name, self._parameter_cache.get(name, definition.get("default")))
+                self._set_config_path(result, definition["config_path"], value, expected_module="group")
+            self._clear_parameter_error()
+            return result
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._report_parameter_error(str(exc))
+            raise
 
     @staticmethod
     def _set_config_path(target: dict[str, Any], path: str, value: Any, *, expected_module: str) -> None:
@@ -841,6 +916,8 @@ class GroupDesignPage(QWidget):
             else:
                 flattened[str(name)] = value
         self._parameter_cache.update(flattened)
+        for name in flattened:
+            self._parameter_drafts.pop(name, None)
         for form in self._forms.values():
             form.set_values(flattened)
         self._on_parameters_changed()
@@ -930,8 +1007,15 @@ class GroupDesignPage(QWidget):
             metadata["aoi_mapping_refs"] = aoi_refs
         return metadata
 
-    def configuration_values(self) -> dict[str, Any]:
-        """Return ``group`` backend values and explicit metadata declarations."""
+    def configuration_values(self, *, include_group: bool = True) -> dict[str, Any]:
+        """Return active group values and explicit metadata declarations.
+
+        Disabled group drafts remain in their editors/cache but are not parsed
+        into a run snapshot, so an inactive method field cannot block an
+        otherwise valid individual-only run.
+        """
+        if not include_group:
+            return {"group": {}, "metadata": {}}
         group = self.parameter_values()
         roles = self._validated_roles()
         if roles:
@@ -1109,7 +1193,8 @@ class GroupDesignPage(QWidget):
                 "参数检查：" + ("；".join(messages) if messages else "当前值类型与已声明范围一致；最终可用性以真实前检为准。")
             )
         except (ValueError, TypeError) as exc:
-            self.evidence_status.setText(str(exc))
+            self.evidence_status.setText("群体参数配置无效；请查看群体参数页的定位提示。")
+            self._report_parameter_error(str(exc))
             payload = {"group": {}, "metadata": {}}
         self.configuration_changed.emit(payload)
 

@@ -199,6 +199,8 @@ def _requested_ids(
     availability: Any,
     allow_experimental: bool | Mapping[str, bool],
 ) -> dict[str, tuple[str, ...]]:
+    if preset.kind not in {"basic_r1", "all_available", "theme", "fixed", "custom"}:
+        raise ValueError(f"预设 kind 未知：{preset.kind!r}")
     index = catalogue_index(schema)
     selected: dict[str, tuple[str, ...]] = {}
     for module in preset.target_modules:
@@ -234,6 +236,7 @@ def resolve_preset(
     allow_experimental: bool | Mapping[str, bool] = False,
 ) -> PresetResolution:
     """Resolve a preset against the live catalogue and current availability."""
+    validate_preset_definition(preset)
     current = current_selections or {}
     index = catalogue_index(schema)
     requested = _requested_ids(
@@ -289,6 +292,40 @@ def resolve_preset(
     )
 
 
+def validate_preset_definition(preset: PresetDefinition) -> None:
+    """Reject malformed preset structure before selection or form state changes."""
+    if not isinstance(preset, PresetDefinition):
+        raise TypeError("预设必须是 PresetDefinition")
+    if not isinstance(preset.preset_id, str) or not preset.preset_id.strip():
+        raise ValueError("预设 ID 必须是非空文本")
+    if not isinstance(preset.label, str) or not preset.label.strip():
+        raise ValueError("预设名称必须是非空文本")
+    if preset.kind not in {"basic_r1", "all_available", "theme", "fixed", "custom"}:
+        raise ValueError(f"预设 kind 未知：{preset.kind!r}")
+    if not isinstance(preset.schema_version, str):
+        raise ValueError("预设 schema_version 必须是文本")
+    if (not isinstance(preset.target_modules, (list, tuple))
+            or not preset.target_modules
+            or any(module not in MODULES for module in preset.target_modules)
+            or len(set(preset.target_modules)) != len(preset.target_modules)):
+        raise ValueError("预设 target_modules 必须包含不重复的已知模块")
+    if not isinstance(preset.selections, Mapping):
+        raise ValueError("预设 selections 必须是对象")
+    unknown_modules = set(preset.selections) - set(MODULES)
+    if unknown_modules:
+        raise ValueError("预设 selections 包含未知模块：" + ", ".join(sorted(map(str, unknown_modules))))
+    for module, values in preset.selections.items():
+        if (not isinstance(values, (list, tuple)) or isinstance(values, (str, bytes))
+                or any(not isinstance(value, str) or not value for value in values)):
+            raise ValueError(f"预设 selections.{module} 必须是非空 ID 文本组成的列表")
+    if not isinstance(preset.parameters, Mapping):
+        raise ValueError("预设 parameters 必须是对象")
+    if any(not isinstance(key, str) or not key for key in preset.parameters):
+        raise ValueError("预设 parameters 的字段名必须是非空文本")
+    if preset.kind == "theme" and (preset.module not in MODULES or not isinstance(preset.category, str)):
+        raise ValueError("主题预设必须指定已知 module 和文本 category")
+
+
 def selection_diff(
     current: Mapping[str, tuple[str, ...] | list[str]],
     target: Mapping[str, tuple[str, ...] | list[str]],
@@ -332,23 +369,39 @@ def load_custom_preset(path: str | Path) -> PresetDefinition:
     selections_value = payload.get("selections", {})
     if not isinstance(selections_value, Mapping):
         raise ValueError("自定义预设的 selections 必须是对象。")
-    selections = {
-        module: tuple(str(value) for value in selections_value.get(module, ()) if isinstance(value, str))
-        for module in MODULES
-    }
+    unknown_modules = set(selections_value) - set(MODULES)
+    if unknown_modules:
+        raise ValueError("自定义预设包含未知模块：" + ", ".join(sorted(map(str, unknown_modules))))
+    selections: dict[str, tuple[str, ...]] = {}
+    for module in MODULES:
+        values = selections_value.get(module, ())
+        if not isinstance(values, (list, tuple)) or isinstance(values, (str, bytes)):
+            raise ValueError(f"自定义预设 selections.{module} 必须是 ID 列表。")
+        if any(not isinstance(value, str) or not value for value in values):
+            raise ValueError(f"自定义预设 selections.{module} 只能包含非空 ID 文本。")
+        selections[module] = tuple(values)
     parameters = payload.get("parameters", {})
     if not isinstance(parameters, Mapping):
         raise ValueError("自定义预设的 parameters 必须是对象。")
-    return PresetDefinition(
-        preset_id="custom:" + str(payload.get("name") or Path(path).stem),
-        label=str(payload.get("name") or Path(path).stem),
+    name = payload.get("name")
+    schema = payload.get("schema_version", "unknown")
+    if name is not None and not isinstance(name, str):
+        raise ValueError("自定义预设 name 必须是文本。")
+    if not isinstance(schema, str):
+        raise ValueError("自定义预设 schema_version 必须是文本。")
+    label = name.strip() if isinstance(name, str) and name.strip() else Path(path).stem
+    preset = PresetDefinition(
+        preset_id="custom:" + label,
+        label=label,
         description="自定义预设；应用前会按当前 schema 和前检检查兼容项。",
         kind="custom",
-        schema_version=str(payload.get("schema_version", "unknown")),
+        schema_version=schema,
         target_modules=MODULES,
         selections=selections,
         parameters=dict(parameters),
     )
+    validate_preset_definition(preset)
+    return preset
 
 
 def _json_default(value: Any) -> Any:

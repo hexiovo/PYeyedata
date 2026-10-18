@@ -1,6 +1,6 @@
 """Release identity shared by the GUI, frozen executable and saved archives."""
 
 APP_NAME = "PYeyedata"
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.9.1"
 PRD_VERSION = "0.9"
 
