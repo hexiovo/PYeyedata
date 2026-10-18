@@ -2,6 +2,16 @@
 
 PYeyedata is a Windows desktop application for eye-tracking data analysis. The supported operating systems are Windows 10 and Windows 11, x64.
 
+## 第一次使用
+
+运行单文件 `PYeyedata.exe` 后，按 **F1** 或点 **帮助 → 新手入门与文件示例**。
+用 **帮助 → 导出练习资料与模板** 得到一套合成练习数据、空白模板和通俗说明。
+按练习导入 `signals-practice.csv` 并加载 `pupil-mean-practice.pyeplan`，可核对左瞳孔平均值约为 3.3 mm。
+
+**文件 → 保存/加载分析方案** 用来复用设置；**结果与追溯 → 保存运行档案** 用来保留某次结果。
+退出时如有未归档的运行，可以返回、逐个归档后退出，或明确选择不归档。
+方案、结果导出和运行档案的区别，以及全部 10 类输入文件的填写实例，都在内置帮助和离线 PDF 手册里。
+
 ## Build from source
 
 Use 64-bit CPython 3.12.1 or a later 3.12.x release on a Windows 10/11 x64 build machine. CPython 3.12.10 is the validated runtime. Version 3.12.0 is below the build minimum because a code-object replacement bug can break PyInstaller's frozen SciPy startup. Install the pinned environment from `requirements.txt`, then run the checked-in one-file build runner with a new output directory outside the repository:

@@ -883,6 +883,19 @@ class GroupDesignPage(QWidget):
             self._report_parameter_error(str(exc))
             raise
 
+    def analysis_plan_parameters(self, metric_ids: Sequence[str]) -> dict[str, Any]:
+        """Save only the method parameters belonging to the plan's selection."""
+        definitions = group_parameter_fields(metric_ids)
+        names = {item["name"] for item in definitions}
+        raw: dict[str, Any] = {}
+        for form in self._forms.values():
+            raw.update(form.values(names & set(form.editors)))
+        result: dict[str, Any] = {}
+        for item in definitions:
+            value = raw.get(item["name"], self._parameter_cache.get(item["name"], item.get("default")))
+            self._set_config_path(result, item["config_path"], value, expected_module="group")
+        return result
+
     @staticmethod
     def _set_config_path(target: dict[str, Any], path: str, value: Any, *, expected_module: str) -> None:
         parts = path.split(".")

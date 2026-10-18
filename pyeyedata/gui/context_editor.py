@@ -125,7 +125,7 @@ class ContextSourcePanel(QWidget):
         self.decimal_combo.addItem("小数点 .", ".")
         self.decimal_combo.addItem("小数逗号 ,", ",")
         self.preview_button = QPushButton("预览前 100 行", self)
-        self.load_button = QPushButton("载入完整表到 context", self)
+        self.load_button = QPushButton("载入完整表", self)
         self.remove_button = QPushButton("移除", self)
         self.status = QLabel("未选择文件", self)
         self.status.setWordWrap(True)
@@ -177,6 +177,9 @@ class ContextSourcePanel(QWidget):
         path_row.addWidget(self.preview_button)
         path_row.addWidget(self.load_button)
         path_row.addWidget(self.remove_button)
+        self.help_button = QPushButton("填写示例", self)
+        self.help_button.clicked.connect(self._show_input_help)
+        path_row.addWidget(self.help_button)
         source_form.addRow("文件", path_row)
         source_form.addRow("工作表（XLSX）", self.sheet_combo)
         csv_row = QHBoxLayout()
@@ -200,8 +203,8 @@ class ContextSourcePanel(QWidget):
         semantics_form.addRow("来源引用", self.source_refs)
 
         note = QLabel(
-            "仅列出 A 公开 context 表名。时间列按明确单位转换为 *_s；原始列保留在 raw_source__*。"
-            "阅读标注当前只保存追溯，不会被宣称已进入计算。XLSX 仅读取缓存值，不运行宏或重算公式。", self
+            "这些辅助资料只在所选方法需要时添加。先对应源列并确认时间和单位，再点“载入完整表”。"
+            "阅读标注只作追溯，不会自动计算阅读指标。Excel 公式请先计算并保存；本软件只读取已保存的值。", self
         )
         note.setWordWrap(True)
         layout = QVBoxLayout(self)
@@ -217,6 +220,10 @@ class ContextSourcePanel(QWidget):
     @property
     def source_path(self) -> str:
         return self.path_edit.text().strip()
+
+    def _show_input_help(self) -> None:
+        from .help_center import show_help
+        show_help(self, role=self.kind)
 
     def _choose_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择辅助数据", "", "CSV / XLSX (*.csv *.xlsx)")
@@ -319,7 +326,7 @@ class ContextSourcePanel(QWidget):
         self._manifest["preview_only"] = True
         self.status.setText(
             f"{self._manifest.get('source_name', Path(self.source_path).name)} · {len(frame):,} 行预览"
-            f" · SHA-256 {str(self._manifest.get('sha256', ''))[:16]}；点击‘载入完整表到 context’保存整表"
+            f" · SHA-256 {str(self._manifest.get('sha256', ''))[:16]}；点击‘载入完整表’保存整表"
         )
         if self.kind == "reading_annotations":
             self.status.setText(self.status.text() + " · 仅存档，不进入 A 计算")
@@ -603,9 +610,9 @@ class ContextEditor(QWidget):
         self.tabs.addTab(self.windows, "具名时间窗")
         self.windows.changed.connect(self.changed.emit)
         note = QLabel(
-            "已载入的表按 external_events、target_movement_intervals、eyelid_intervals、"
-            "reference_fixations、reference_trajectory 等公开名称提供给 AnalysisConfig.context。"
-            "表格保持具名 DataFrame；参考轨迹 ID/单位/坐标系作为 individual 参数，不作为 context 标量。", self
+            "辅助资料用来补充主要信号，例如设备事件、目标移动区间或参考轨迹。"
+            "每类资料都可以查看填写示例；只准备所选方法要求的文件。"
+            "载入后仍需检查可用条件，参考资料的时间、单位和坐标系应与本次任务对应。", self
         )
         note.setWordWrap(True)
         layout = QVBoxLayout(self)

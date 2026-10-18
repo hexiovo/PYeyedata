@@ -927,33 +927,8 @@ class ImportSourcePanel(QWidget):
             QMessageBox.warning(self, "参考模板不可用", str(exc))
 
     def show_help(self) -> None:
-        from pyeyedata.resource_paths import resource_path
-        try:
-            with resource_path("templates/field-guide-zh-en.md") as path:
-                guide = path.read_text(encoding="utf-8")
-            with resource_path("templates/example-pages-zh-en.md") as path:
-                examples = path.read_text(encoding="utf-8")
-            box = QMessageBox(self)
-            box.setWindowTitle(_ROLE_TITLES[self.role] + "字段与示例说明")
-            box.setText("查看字段含义、必填条件和合成示例。XLSX 的 fields 为说明页，请勿作为数据导入。")
-            box.setDetailedText(guide + "\n\n" + examples)
-            save = box.addButton("另存说明", QMessageBox.ButtonRole.ActionRole)
-            box.addButton(QMessageBox.StandardButton.Close)
-            box.exec()
-            if box.clickedButton() == save:
-                destination, _ = QFileDialog.getSaveFileName(self, "保存模板说明", "模板说明.txt", "文本 (*.txt)")
-                if destination:
-                    Path(destination).write_text(guide + "\n\n" + examples, encoding="utf-8")
-            return
-        except Exception as exc:
-            self.status.setText("版本化说明暂不可用：" + str(exc))
-        texts = {
-            "signals": "主要信号至少需要时间和明确参与者/会话 ID。左/右瞳孔、坐标、有效性列逐项映射。源时间单位、时间确认、坐标单位/坐标系是独立声明。",
-            "segments": "段边界按 [start, end) 处理，segment_name 必填。范围、共享时钟、成员会话和重复/重叠策略必须明确；改动范围设置后请重新导入规范化。",
-            "aois": "AOI 需明确 aoi_id、stimulus_id、shape 与几何字段。exclusive 重叠策略需由用户提供 priority；本页不按源行顺序猜优先级。",
-            "performance": "选择分析行层级、每个语义角色、绩效结果列及单位，再显式选择唯一连接键。重复/空键会显示审计状态，不会自动合并或宣称独立样本。",
-        }
-        QMessageBox.information(self, _ROLE_TITLES[self.role] + "填写说明", texts[self.role])
+        from .help_center import show_help
+        show_help(self, role=self.role)
 
 
 class ScopeSettingsWidget(QWidget):
@@ -1319,7 +1294,8 @@ class ImportPage(QWidget):
             widget_value = getattr(self.coordinate, f"pupil_{eye}_unit").text().strip()
             mapping_value = signal_source.units.get(canonical, "").strip()
             if widget_value and mapping_value and widget_value.casefold() != mapping_value.casefold():
-                raise ValueError(f"{eye} pupil 单位声明不一致，请统一坐标面板和映射表。")
+                eye_label = "左瞳孔" if eye == "left" else "右瞳孔"
+                raise ValueError(f"{eye_label}的单位不一致：列映射表填了 {mapping_value}，时间与单位面板填了 {widget_value}。请按设备说明把两处改为同一单位，例如 mm。")
             value = widget_value or mapping_value
             if not value:
                 raise ValueError(f"已映射 {canonical}，请明确其单位（mm、area、device 或 unknown）。")

@@ -1,0 +1,2 @@
+﻿event_id,event_type,start_s,end_s,subject_id,session_id,source_refs
+SYNTHETIC_ONLY_E01,fixation,0.1,0.3,SYNTHETIC_ONLY_P01,SYNTHETIC_ONLY_S01,SYNTHETIC_ONLY_export_note

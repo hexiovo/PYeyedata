@@ -738,11 +738,15 @@ class DesignPage(QWidget):
         if not isinstance(options, Mapping):
             raise TypeError("DesignSpec.options 必须是 mapping")
         defaults = asdict(DesignSpec())
+        prepared = {name: widget.normalize_serialized_value(raw.get(name, defaults.get(name)))
+                    for name, widget in self._design_editors.items()}
+        for name, widget in self._design_editors.items():
+            widget.validate_value(prepared[name])
         self._loading_design = True
         try:
             self._unknown_design_fields = {key: item for key, item in raw.items() if key not in self._design_editors}
             for name, widget in self._design_editors.items():
-                widget.set_value(raw.get(name, defaults.get(name)))
+                widget.set_value(prepared[name])
             self._unknown_options = {key: item for key, item in options.items() if key not in _OPTION_SPECS}
             for name, (kind, default, _description) in _OPTION_SPECS.items():
                 editor = self._option_editors[name]

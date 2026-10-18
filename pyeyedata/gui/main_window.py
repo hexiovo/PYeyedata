@@ -12,7 +12,7 @@ import tempfile
 from typing import Any, Iterator, Mapping
 
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, QSignalBlocker
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QGroupBox,
@@ -57,13 +57,23 @@ from .widgets import DataFrameTableModel, DataFrameTableView
 
 
 WORKFLOW_STEPS = (
-    ("数据导入", "选择 CSV/XLSX 文件并完成列、时间和来源说明。"),
-    ("数据预处理", "查看真实预处理配置、质量检查和输入表。"),
-    ("个体分析", "从公开指标目录选择个体指标并查看可用条件。"),
-    ("多人分析", "按显式成员、范围和同步/空间证据配置团队指标。"),
-    ("统计设计", "明确研究设计、分析单位、结果类型和性能数据连接。"),
-    ("高级指标", "浏览公开高级方法、父子指标和各自参数。"),
-    ("结果与追溯", "按真实运行状态、原因和来源查看结果与历史。"),
+    ("数据导入", "选择数据表，告诉软件每列是什么，并确认时间和单位。"),
+    ("数据预处理", "检查缺失数据，按需要设置补短缺口、滤波和基线校正。"),
+    ("个体分析", "选择要计算的个人指标，例如左瞳孔平均值。"),
+    ("多人分析", "选择一起分析的成员和区间，核对时间是否对齐。"),
+    ("统计设计", "需要比较差异或关联时，说明分组、样本和结果类型。"),
+    ("高级指标", "按研究需要选择方法，并补齐它要求的参考资料。"),
+    ("结果与追溯", "查看每次分析的结果、原因和来源，保存运行档案。"),
+)
+
+STEP_GUIDANCE = (
+    "先做什么：第一次只导入主要信号即可。\n\n例子：time_s 是时间列，单位选秒；pupil_left 是左瞳孔，另填单位 mm。映射就是逐列告诉软件它代表什么。\n\n每个文件区都有“填写说明”和示例。正式导入后再去选择指标。",
+    "这一步会影响哪些数字：插值补短缺口，低通滤波减少较快波动，基线校正减去参考时段的水平。\n\n例子：0.1 s 是 100 毫秒；覆盖率 0.8 是 80%。先理解参数，再更改默认值。\n\n点“定位错误参数”可回到出错位置。",
+    "先做什么：先选一两个需要的指标，并启用该模块。\n\n例子：只计算左瞳孔平均值，不必准备区域或参考轨迹。\n\n先点“检查可用条件”，读完具体原因，再点“运行分析”。检查本身还没算指标。",
+    "先做什么：明确谁和谁在同一次互动中，选好成员和时间范围。\n\n例子：两人都录了 10 秒，不代表他们的第 1 秒能直接对齐；还要核对同步依据。\n\n第一次单人练习可跳过。成员对的数量也不等于独立团队样本数。",
+    "先做什么：只有需要比较差异或关联时才配置。\n\n例子：同一个人在 A、B 两条件各测一次，属于重复观测，不能当成两名互不相关的人。\n\n先声明独立样本、条件列和结果类型；不要为了通过检查随意勾选确认。",
+    "先做什么：阅读所选方法的条件，按需要补充参考资料。\n\n例子：参考轨迹是已知目标位置随时间的变化，不是随便再导入一份眼动数据。\n\n上下文文件的“填写示例”说明每列和时间单位。只准备真正需要的资料。",
+    "先看什么：看具体指标行的状态和原因。complete 表示该行完成，partial 表示部分完成，NA 表示暂无有效数值。\n\n例子：平均值已算出，但未设置的统计推断可能未计算。\n\n保存 .pyea 保留运行；导出表格用于查看；保存 .pyeplan 复用设置。",
 )
 
 
@@ -160,6 +170,10 @@ class MainWindow(QMainWindow):
         self._operation_result = None
         self._archive_paths = {}
         self._prepared_archive = None
+        self._archived_records: set[int] = set()
+        self._archive_saving_record = None
+        self._archive_before_close = False
+        self._close_decision_active = False
         self._selection = SelectionSpec()
         self._parameters: dict[str, Any] = {}
         self._context_tables: dict[str, pd.DataFrame] = {}
@@ -177,6 +191,7 @@ class MainWindow(QMainWindow):
         self._preview_model = DataFrameTableModel(parent=self)
 
         self.setWindowTitle("PYeyedata · 眼动数据分析")
+        self._build_file_menu()
         self._build_help_menu()
         self._fitted_on_first_show = False
         self._build_toolbar()
@@ -187,8 +202,117 @@ class MainWindow(QMainWindow):
         self._refresh_dependency_state()
         self.statusBar().showMessage("未载入数据")
 
+    def _build_file_menu(self) -> None:
+        menu = self.menuBar().addMenu("文件")
+        self.save_plan_action = QAction("保存分析方案…", self)
+        self.save_plan_action.setShortcut("Ctrl+Shift+S")
+        self.save_plan_action.setToolTip("保存预处理、指标、方法参数和统计设计，供下次复用；不保存数据或结果。")
+        self.load_plan_action = QAction("加载分析方案…", self)
+        self.load_plan_action.setShortcut("Ctrl+Shift+O")
+        self.save_plan_action.triggered.connect(self._save_plan_dialog)
+        self.load_plan_action.triggered.connect(self._load_plan_dialog)
+        menu.addAction(self.save_plan_action)
+        menu.addAction(self.load_plan_action)
+
+    def _configuration_busy(self) -> bool:
+        return self.task_manager.active or self.operation_manager.active or self.import_page.import_active
+
+    def analysis_plan(self, name: str = "我的分析方案") -> dict[str, Any]:
+        from .analysis_plan import make_plan, validate_plan
+        if self._configuration_busy():
+            raise RuntimeError("请等待当前任务结束后再保存方案。")
+        selection = self.metrics_page.selection_spec()
+        configuration = {
+            "selection": selection.to_dict(),
+            "experimental": dict(self.metrics_page._allow_experimental),
+            "processing": self.quality_page.processing_config(),
+            "metrics": self.metrics_page.all_parameter_values(),
+            "group": self.group_page.analysis_plan_parameters(selection.group_metric_ids),
+            "statistics_design": self.design_page.configuration_values(),
+        }
+        schema = self.bridge.schema()
+        payload = make_plan(configuration, pipeline_schema=str(schema["pipeline_schema_version"]), name=name)
+        validate_plan(payload, schema)
+        return payload
+
+    def apply_analysis_plan(self, payload: Mapping[str, Any]) -> None:
+        from .analysis_plan import validate_plan
+        if self._configuration_busy():
+            raise RuntimeError("请等待当前任务结束后再加载方案。")
+        configuration = validate_plan(payload, self.bridge.schema())
+        selection = SelectionSpec(**configuration["selection"])
+        # All setters have already succeeded on isolated pages. Block cross-page
+        # signals until the complete configuration has been installed.
+        blockers = [QSignalBlocker(page) for page in
+                    (self.metrics_page, self.quality_page, self.group_page, self.design_page)]
+        try:
+            with self._suppress_configuration_events():
+                self.metrics_page.invalidate_preflight()
+                self.quality_page.set_processing_config(configuration["processing"])
+                self.metrics_page.set_parameter_values(configuration["metrics"], emit=False, strict=True)
+                self.metrics_page._allow_experimental = dict(configuration["experimental"])
+                self.metrics_page.set_selection(selection)
+                self.group_page.set_group_metric_ids(selection.group_metric_ids)
+                self.group_page.set_parameter_values(configuration["group"])
+                self.design_page.set_design_spec(configuration["statistics_design"])
+                self._selection = self.metrics_page.selection_spec()
+                self._parameters = {}
+                self._statistics_design = deepcopy(configuration["statistics_design"])
+        finally:
+            del blockers
+        self._invalidate_configuration("已加载分析方案；请按本次数据重新检查可用条件")
+        self.status_label.setText("方案已加载。请核对当前数据、多人范围和统计设计，再点“检查可用条件”。")
+
+    def _save_plan_dialog(self) -> None:
+        from .analysis_plan import write_plan
+        try:
+            payload = self.analysis_plan()
+            path, _ = QFileDialog.getSaveFileName(self, "保存分析方案（不含数据和结果）", "我的分析方案.pyeplan", "分析方案 (*.pyeplan)")
+            if not path:
+                return
+            if not path.lower().endswith(".pyeplan"):
+                path += ".pyeplan"
+            payload["name"] = Path(path).stem[:200]
+            write_plan(path, payload)
+            self.status_label.setText("方案已保存：" + path + "；分析结果请另存为运行档案。")
+        except Exception as exc:
+            self._route_configuration_error(exc)
+            QMessageBox.warning(self, "方案未保存", "请先修正提示的设置，再保存方案。\n\n" + str(exc))
+
+    def _load_plan_dialog(self) -> None:
+        from .analysis_plan import read_plan, validate_plan, plan_summary
+        path, _ = QFileDialog.getOpenFileName(self, "加载分析方案", "", "分析方案 (*.pyeplan)")
+        if not path:
+            return
+        try:
+            payload = read_plan(path)
+            validate_plan(payload, self.bridge.schema())
+            box = QMessageBox(self)
+            box.setWindowTitle("确认应用方案")
+            box.setText(plan_summary(payload))
+            apply_button = box.addButton("应用方案", QMessageBox.ButtonRole.AcceptRole)
+            keep_button = box.addButton("保持当前设置", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(keep_button)
+            box.setEscapeButton(keep_button)
+            box.exec()
+            if box.clickedButton() is apply_button:
+                self.apply_analysis_plan(payload)
+        except Exception as exc:
+            QMessageBox.warning(self, "方案未加载", str(exc) + "\n当前设置保持原样。")
+
     def _build_help_menu(self) -> None:
         help_menu = self.menuBar().addMenu("帮助")
+        self.help_action = QAction("新手入门与文件示例", self)
+        self.help_action.setShortcut("F1")
+        self.help_action.triggered.connect(self._open_help)
+        help_menu.addAction(self.help_action)
+        export_action = QAction("导出练习资料与模板…", self)
+        export_action.triggered.connect(self._export_learning_pack)
+        help_menu.addAction(export_action)
+        pdf_action = QAction("离线使用手册（PDF）", self)
+        pdf_action.triggered.connect(self._open_pdf_guide)
+        help_menu.addAction(pdf_action)
+        help_menu.addSeparator()
         about_action = QAction("关于 PYeyedata", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
@@ -252,6 +376,8 @@ class MainWindow(QMainWindow):
         self.cancel_action.setEnabled(False)
         for action in (self.open_action, self.preflight_action, self.run_action, self.cancel_action):
             toolbar.addAction(action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.help_action)
         self.preflight_action.triggered.connect(self.start_preflight)
         self.run_action.triggered.connect(self.start_analysis)
         self.cancel_action.triggered.connect(self._cancel_current_task)
@@ -424,7 +550,7 @@ class MainWindow(QMainWindow):
         self.operation_manager.progress.connect(self._on_operation_progress)
         self.operation_manager.completed.connect(self._on_operation_completed)
         self.operation_manager.failed.connect(self._on_operation_failed)
-        self.operation_manager.cancelled.connect(lambda _generation: self._append_log("归档/导出任务已取消；当前结果保持不变。"))
+        self.operation_manager.cancelled.connect(self._on_operation_cancelled)
         self.operation_manager.idle.connect(self._on_operation_idle)
 
     def _cancel_current_task(self):
@@ -459,9 +585,15 @@ class MainWindow(QMainWindow):
 
     def _on_operation_failed(self, generation, details):
         if generation == self.operation_manager.generation:
+            self._archive_before_close = False
             self.status_label.setText("归档/导出失败；原文件和当前结果保持不变")
             self._append_log(details)
             QMessageBox.warning(self, "操作失败", details)
+
+    def _on_operation_cancelled(self, generation):
+        if generation == self.operation_manager.generation:
+            self._archive_before_close = False
+            self._append_log("归档/导出任务已取消；当前结果保持不变。")
 
     def _on_operation_idle(self):
         self._refresh_dependency_state()
@@ -488,11 +620,13 @@ class MainWindow(QMainWindow):
                     prepared = result
                     self._start_operation("save", lambda cancel, progress: prepared.commit(self._archive_destination, cancel=cancel, progress=progress))
                 else:
+                    self._archive_before_close = False
                     result.close(); self._prepared_archive = None
             elif kind == "load":
                 if self.session.generation == self._operation_session_generation:
                     self.session.execution_cache.clear()
                     self.session.record(result.record)
+                    self._archived_records.add(id(result.record))
                     self._archive_paths[id(result.record)] = Path(self._archive_open_path)
                     self.results_page.set_history(self.session.history)
                     self.results_page.show_record(result.record)
@@ -502,9 +636,14 @@ class MainWindow(QMainWindow):
                 else:
                     self._append_log("档案读取期间输入/配置已改变；已丢弃迟到结果。")
             elif kind == "save":
+                if self._archive_saving_record is not None:
+                    self._mark_archive_committed(self._archive_saving_record, Path(self._archive_destination))
+                    self._archive_saving_record = None
                 if self._prepared_archive is not None:
                     self._prepared_archive.close(); self._prepared_archive = None
                 self.status_label.setText("运行档案已校验并安全保存")
+                if self._archive_before_close:
+                    QTimer.singleShot(0, self.close)
             else:
                 self.status_label.setText("导出完成：" + str(getattr(result, "path", result)))
         elif self._operation_kind == "save" and self._prepared_archive is not None:
@@ -515,23 +654,32 @@ class MainWindow(QMainWindow):
 
     def _save_archive_dialog(self, record):
         from pyeyedata.archive_session import prepare_run_archive
+        if self._configuration_busy():
+            self.status_label.setText("请等待当前任务结束后再归档。")
+            return False
         choices = ["完整档案（含真实输入）", "仅结果（不能完整重算）"] if record.snapshot is not None else ["仅结果（不能完整重算）"]
         choice, accepted = QInputDialog.getItem(self, "档案内容", "选择本次运行的保存方式", choices, 0, False)
         if not accepted:
-            return
+            self._archive_before_close = False
+            return False
         mode = "full" if choice.startswith("完整") else "results_only"
         path, _ = QFileDialog.getSaveFileName(self, "保存所选运行", record.run_id + ".pyea", "PYeyedata 档案 (*.pyea)")
         if not path:
-            return
+            self._archive_before_close = False
+            return False
         if not path.lower().endswith(".pyea"):
             path += ".pyea"
         self._archive_destination = path
+        self._archive_saving_record = record
         try:
             static_artifacts = self._capture_current_figures(record)
             static_omissions = tuple(self._current_figure_omissions)
             self._start_operation("prepare", lambda cancel, progress: prepare_run_archive(record, mode=mode, cancel=cancel, progress=progress, static_artifacts=static_artifacts, static_omissions=static_omissions))
+            return True
         except Exception as exc:
+            self._archive_before_close = False
             QMessageBox.warning(self, "档案保存失败", str(exc))
+            return False
 
     def _capture_current_figures(self, record):
         from pyeyedata.reporting import FigureArtifact, render_existing_figure_artifact
@@ -631,6 +779,14 @@ class MainWindow(QMainWindow):
             raise RuntimeError("系统没有可打开此文件的查看器；可在缓存目录中另存或打开：" + str(destination))
 
     def _open_help(self, _message=None):
+        from .help_center import show_help
+        show_help(self)
+
+    def _export_learning_pack(self, _checked=False):
+        from .help_center import export_learning_pack_dialog
+        export_learning_pack_dialog(self)
+
+    def _open_pdf_guide(self, _checked=False):
         from pyeyedata.resource_paths import resource_path
         try:
             with resource_path("help/PYeyedata-user-guide-zh.pdf") as path:
@@ -723,6 +879,8 @@ class MainWindow(QMainWindow):
         other_busy = pipeline_busy or operation_busy
         self.import_page.set_external_busy(other_busy)
         busy = other_busy or import_busy
+        self.save_plan_action.setEnabled(not busy)
+        self.load_plan_action.setEnabled(not busy)
         ready = self.session.dataset_revision is not None
         self.preflight_action.setEnabled(bool(ready and not busy))
         self.run_action.setEnabled(bool(ready and not busy))
@@ -832,7 +990,7 @@ class MainWindow(QMainWindow):
         self.page_title.setText(name)
         self.page_description.setText(description)
         self.help_text.setText(
-            f"{description}\n\n各项可用条件和计算状态依据对应方法的实际检查与结果。设备、生理和来源声明不会被界面自动认证。"
+            STEP_GUIDANCE[row] + "\n\n按 F1 查看完整练习和文件示例。"
         )
 
     def set_selection(self, selection: SelectionSpec) -> None:
@@ -1425,7 +1583,14 @@ class MainWindow(QMainWindow):
         self.log_view.appendPlainText(line)
 
     def closeEvent(self, event: Any) -> None:
+        if self._close_decision_active:
+            event.ignore()
+            return
         if self.task_manager.active or self.operation_manager.active or self.import_page.import_active:
+            if self._archive_before_close and self.operation_manager.active:
+                self.status_label.setText("正在保存运行档案，保存完成后继续退出检查。")
+                event.ignore()
+                return
             self._close_pending = True
             self.task_manager.cancel()
             self.operation_manager.cancel()
@@ -1436,8 +1601,51 @@ class MainWindow(QMainWindow):
                 self.status_label.setText("已请求取消；等待当前后端任务结束后关闭")
             event.ignore()
             return
+        records = self.unarchived_records()
+        if records:
+            event.ignore()
+            self._close_decision_active = True
+            try:
+                decision = "archive" if self._archive_before_close else self._confirm_unarchived_close(records)
+            finally:
+                self._close_decision_active = False
+            if decision == "archive":
+                self._archive_before_close = True
+                self._save_archive_dialog(records[0])
+                return
+            self._archive_before_close = False
+            if decision != "discard":
+                return
         self.session.execution_cache.clear()
         super().closeEvent(event)
+
+    def unarchived_records(self) -> tuple[RunRecord, ...]:
+        return tuple(record for record in self.session.history if id(record) not in self._archived_records)
+
+    def _mark_archive_committed(self, record: RunRecord, path: Path) -> None:
+        # Reusing a filename replaces its earlier run. That earlier record must
+        # become unsaved again rather than silently disappearing on exit.
+        canonical = os.path.normcase(str(path.resolve()))
+        for record_id, previous in tuple(self._archive_paths.items()):
+            if record_id != id(record) and os.path.normcase(str(previous.resolve())) == canonical:
+                self._archived_records.discard(record_id)
+                del self._archive_paths[record_id]
+        self._archived_records.add(id(record))
+        self._archive_paths[id(record)] = path
+
+    def _confirm_unarchived_close(self, records: tuple[RunRecord, ...]) -> str:
+        box = QMessageBox(self)
+        box.setWindowTitle("还有分析记录未归档")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(f"还有 {len(records)} 次分析记录只保存在本次窗口中，退出后无法从历史列表找回。")
+        box.setInformativeText("保存方案或导出 CSV/PDF 不等于归档。选择“逐个归档后退出”可以保存结果；完整档案还会包含本次输入。")
+        archive = box.addButton("逐个归档后退出", QMessageBox.ButtonRole.AcceptRole)
+        discard = box.addButton("不归档，直接退出", QMessageBox.ButtonRole.DestructiveRole)
+        stay = box.addButton("返回继续使用", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(stay)
+        box.setEscapeButton(stay)
+        box.exec()
+        return "archive" if box.clickedButton() is archive else "discard" if box.clickedButton() is discard else "cancel"
 
     def _on_task_manager_idle(self) -> None:
         self._refresh_busy_state()

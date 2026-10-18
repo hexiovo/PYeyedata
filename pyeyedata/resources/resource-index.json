@@ -26,7 +26,8 @@
       "example_page": "templates/example-pages-zh-en.md",
       "workbook_sheet_instruction": "Explicitly select empty_template or example; the fields sheet is documentation and must not be imported.",
       "status": "available",
-      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row."
+      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row.",
+      "beginner_guide": "help/input-files-zh.md"
     },
     "segments": {
       "workbook": "templates/segments-contract-1.3.0.xlsx",
@@ -49,7 +50,8 @@
       "example_page": "templates/example-pages-zh-en.md",
       "workbook_sheet_instruction": "Explicitly select empty_template or example; the fields sheet is documentation and must not be imported.",
       "status": "available",
-      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row."
+      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row.",
+      "beginner_guide": "help/input-files-zh.md"
     },
     "aois": {
       "workbook": "templates/aois-contract-1.3.0.xlsx",
@@ -92,7 +94,8 @@
         "coordinate_frame",
         "overlap_policy",
         "priority"
-      ]
+      ],
+      "beginner_guide": "help/input-files-zh.md"
     },
     "performance": {
       "workbook": "templates/performance-contract-1.3.0.xlsx",
@@ -115,15 +118,16 @@
       "example_page": "templates/example-pages-zh-en.md",
       "workbook_sheet_instruction": "Explicitly select empty_template or example; the fields sheet is documentation and must not be imported.",
       "status": "available",
-      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row."
+      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row.",
+      "beginner_guide": "help/input-files-zh.md"
     }
   },
   "help_guide": {
     "status": "available",
     "resource_path": "help/PYeyedata-user-guide-zh.pdf",
-    "application_version": "0.9.1",
-    "guide_version": "0.9.0",
-    "sha256": "966930d8932704817e2cf244200ce029ec56d709aff7fbace594d3c081acb409"
+    "application_version": "0.9.2",
+    "guide_version": "0.9.2",
+    "sha256": "36963ebf4bea7a46bf1a2ce1a07db912df82d1bf60bc73290ea1883e323eb2cb"
   },
   "fonts": {
     "path": "fonts/PYeyedataCJK-Regular.ttf",
@@ -131,7 +135,7 @@
     "source_manifest": "fonts/font-source.json",
     "usage": "Keep the resource_path context open through registration and the complete render/export."
   },
-  "application_version": "0.9.1",
+  "application_version": "0.9.2",
   "licenses": {
     "status": "Offline license texts and source notices are grouped by the pinned distributions and Qt upstream modules represented in the preparation inventory. The 281 native rows are mapped against the CPython 3.12.10 Matplotlib-export Analysis; the clean-root final build and release evidence must still reconcile every actual row, file hash, source group, license/notice, and rebuild route. Microsoft names, file versions, hashes, and source paths do not by themselves establish redistribution entitlement; external binary redistribution remains outside the task scope.",
     "source_manifest": "licenses/source-manifest.json",
@@ -222,8 +226,34 @@
       "licenses/qt/6.8.3/qtimageformats/libtiff/COPYRIGHT.txt": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7",
       "licenses/qt/6.8.3/qtimageformats/libwebp/COPYING.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
       "licenses/qt/6.8.3/qtimageformats/libwebp/PATENTS.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
-      "licenses/source-manifest.json": "ebf4a0c08bd2b01e7e02e973013f4583d557e3a5b55c0d44029b664a5ba23210",
+      "licenses/source-manifest.json": "e9c8e73f116d0e1e01468088a1b1678c54057b5146af8bf6fc2bbf7ae60bba92",
       "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"
+    }
+  },
+  "beginner_help": {
+    "status": "available",
+    "guide_version": "0.9.2",
+    "chapters": [
+      "help/quick-start-zh.md",
+      "help/input-files-zh.md",
+      "help/plans-and-archives-zh.md"
+    ],
+    "practice_plan": "help/examples/pupil-mean-practice.pyeplan",
+    "material_sha256": {
+      "help/input-files-zh.md": "431269a63cfd6fd00c196383bc5b9af917d9a2e7c94310d15ff33e6af48d647e",
+      "help/plans-and-archives-zh.md": "01dfdee9fe87d9293b71bd486451684e82e53dfaecd5fc7ceb6d30c5ece4ca1e",
+      "help/quick-start-zh.md": "d667d22f99aee425b065e9f0cba94aadd55bef84fdf0291fb5f3d58df8f9ff3e",
+      "help/examples/aois-example.csv": "4c20fc31fde45053b199932e91a9808d1b5bc468fac0e947824af0360a3c30d9",
+      "help/examples/external_events-example.csv": "581a45ed4c98e3a663882e53b58777efd4e15486be1a1e51295b4598d603b8d7",
+      "help/examples/eyelid_intervals-example.csv": "47674b967abe7952a27aa193c1337f869c0be5d0a05e775da1daabe5a2da3834",
+      "help/examples/performance-example.csv": "5d9268eda5c4a9db731239c3817a0e66d3723595afc3216b8d61888751dc2e7c",
+      "help/examples/pupil-mean-practice.pyeplan": "4e828d4b221b93417b80fc475b47fc0a34b84e509fe2add8b2a80cf8c4b1df19",
+      "help/examples/reading_annotations-example.csv": "32caa5b8abc9b6615bdd342c4d5df72e2c5b64ceee58e5de93ad4bc3b6472f4a",
+      "help/examples/reference_fixations-example.csv": "bab06ff53b1149f82dc978bdeab54b1842aad46ab1392ed455dfc0802ef10f0e",
+      "help/examples/reference_trajectory-example.csv": "0c73302ff3b4fac6a7e8a96c1c3b0090152a3d91a80b484b67ce605f7a0b076c",
+      "help/examples/segments-example.csv": "c95f1590594c5f72efe840ec21a8d7d7a588e78467ab0b6e8985026f779a4c1d",
+      "help/examples/signals-practice.csv": "db508c88add0dc5f02a4eac89b17a0deefe4c64bca3415c5e4b3e8d123151f64",
+      "help/examples/target_movement_intervals-example.csv": "f61172cb6e12101c1ba6e87ad99d122bdadb284740bc5eda589973f3b99d8c2a"
     }
   }
 }

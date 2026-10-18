@@ -1,0 +1,3 @@
+﻿time_s,gaze_x,gaze_y,reference_valid,reference_id
+0.0,100,120,1,SYNTHETIC_ONLY_REF
+0.1,110,120,1,SYNTHETIC_ONLY_REF

@@ -18,7 +18,7 @@ from typing import Any
 CONFIG_SCHEMA = "pyeyedata.diagnostic-config/v1"
 EVIDENCE_SCHEMA = "pyeyedata.diagnostic-evidence/v1"
 MAX_CONFIG_BYTES = 64 * 1024
-SCENARIOS = frozenset({"gui-startup", "synthetic-pipeline", "open-archive", "reliability-smoke"})
+SCENARIOS = frozenset({"gui-startup", "synthetic-pipeline", "open-archive", "reliability-smoke", "usability-smoke"})
 _DEMO_INPUTS = {
     "signals.csv": "demo/SYNTHETIC_ONLY_A_low_rate_signals.csv",
     "segments.csv": "demo/SYNTHETIC_ONLY_A_segments.csv",
@@ -66,7 +66,7 @@ def _read_config(path_text: str) -> dict[str, Any]:
         raise DiagnosticConfigError(f"schema must be {CONFIG_SCHEMA!r}")
     if scenario not in SCENARIOS:
         raise DiagnosticConfigError(
-            "scenario must be gui-startup, synthetic-pipeline, open-archive, or reliability-smoke"
+            "scenario must be gui-startup, synthetic-pipeline, open-archive, reliability-smoke, or usability-smoke"
         )
     if value.get("display") not in {"native", "offscreen"}:
         raise DiagnosticConfigError("display must be 'native' or 'offscreen'")
@@ -564,7 +564,7 @@ def _exercise_about_licenses_and_help(app: Any, window: Any) -> dict[str, Any]:
         QDesktopServices.openUrl = staticmethod(
             lambda url: opened.append(url.toLocalFile()) or True
         )
-        window._open_help("diagnostic")
+        window._open_pdf_guide()
     finally:
         QDesktopServices.openUrl = original_open_url
     if len(opened) != 1:
@@ -1347,6 +1347,123 @@ def _run_reliability_smoke(app: Any, window: Any, workspace: Path,
     }
 
 
+def _run_usability_smoke(app: Any, window: Any, workspace: Path, evidence: dict[str, Any]) -> None:
+    """Fixed beginner workflow, plan transaction and real archive/close behavior."""
+    from copy import deepcopy
+    from PySide6.QtGui import QCloseEvent
+    from .analysis_plan import read_plan, write_plan
+    from .help_center import export_learning_pack, input_instructions, INPUT_ROLES, make_help_dialog
+    from pyeyedata.archive_session import prepare_run_archive
+    from pyeyedata.resource_paths import read_resource_bytes
+
+    pack = export_learning_pack(workspace)
+    if not all("```csv" in input_instructions(role) and "常见错误" in input_instructions(role)
+               for role in INPUT_ROLES):
+        raise RuntimeError("An input role lacks its worked example or repair instructions")
+    help_dialog = make_help_dialog(window)
+    help_dialog.show(); app.processEvents()
+    if help_dialog.help_tabs.count() != 3:
+        raise RuntimeError("The beginner help chapters are incomplete")
+    help_dialog.grab().save(str(workspace/"beginner-help.png"))
+    help_dialog.close()
+    practice_plan = read_plan(pack/"pupil-mean-practice.pyeplan")
+    window.apply_analysis_plan(practice_plan)
+    saved_plan = workspace/"saved-practice.pyeplan"
+    write_plan(saved_plan, window.analysis_plan("合成练习方案往返"))
+    window.apply_analysis_plan(read_plan(saved_plan))
+    before = window.analysis_plan()["configuration"]
+    generation = window.session.generation
+    bad = deepcopy(practice_plan)
+    bad["configuration"]["statistics_design"]["options"]["fit_method"] = "INVALID"
+    try:
+        window.apply_analysis_plan(bad)
+    except (TypeError, ValueError):
+        pass
+    else:
+        raise RuntimeError("An invalid late design field was applied")
+    if window.analysis_plan()["configuration"] != before or window.session.generation != generation:
+        raise RuntimeError("Rejected plan changed settings or session state")
+
+    panel = window.import_page.sources["signals"]
+    previewed, preview_failed = [], []
+    panel.preview_loaded.connect(lambda role, frame: previewed.append(frame))
+    panel.preview_failed.connect(lambda role, error: preview_failed.append(error))
+    panel.path_edit.setText(str(pack/"signals-practice.csv"))
+    panel.request_preview()
+    _wait_for_condition(app, lambda: bool(previewed or preview_failed), "practice preview")
+    if preview_failed or panel.mapping is None:
+        raise RuntimeError("Practice preview failed: " + str(preview_failed))
+    for name in ("subject_id", "session_id", "time_s", "pupil_left", "pupil_left_valid"):
+        row = next(i for i, spec in enumerate(panel.mapping.fields) if spec.name == name)
+        control = panel.mapping._table.cellWidget(row, 2)
+        control.setCurrentIndex(control.findData(name))
+        if name == "pupil_left":
+            panel.mapping._table.cellWidget(row, 5).setCurrentText("mm")
+    coordinate = window.import_page.coordinate
+    coordinate.time_unit.setCurrentIndex(coordinate.time_unit.findData("s"))
+    coordinate.time_confirmed.setChecked(True)
+    coordinate.pupil_left_unit.setText("mm")
+    failures = []
+    window.import_page.import_failed.connect(failures.append)
+    window.import_page.start_import()
+    _wait_for_condition(app, lambda: not window.import_page.import_active, "practice import")
+    if failures or window.session.dataset_revision is None:
+        raise RuntimeError("Practice import failed: " + str(failures) + "; " + window.import_page.status.text())
+    revision = window.session.dataset_revision
+    if len(revision.dataset_copy().signals) != 201:
+        raise RuntimeError("Practice import did not retain all 201 rows")
+    outcome, failures = _run_gui_task(app, window, phase="preflight")
+    if failures or outcome is None:
+        raise RuntimeError("Practice preflight failed: " + str(failures))
+    outcome, failures = _run_gui_task(app, window, phase="run")
+    if failures or outcome is None or len(window.session.history) != 1:
+        raise RuntimeError("Practice analysis failed: " + str(failures))
+    record = window.session.history[0]
+    metrics = record.tables()["metrics"]
+    row = metrics.loc[metrics["metric_id"] == "individual.pupil_left.mean"]
+    if len(row) != 1 or row.iloc[0]["status"] != "complete" or abs(float(row.iloc[0]["value"])-3.3) > 1e-10:
+        raise RuntimeError("Worked example did not produce the documented 3.3 mm metric")
+    # A valid plan affects configuration, never imported data or prior records.
+    window.apply_analysis_plan(read_plan(saved_plan))
+    if window.session.dataset_revision is not revision or window.session.history != (record,):
+        raise RuntimeError("Loading a plan replaced data or history")
+    if window.unarchived_records() != (record,):
+        raise RuntimeError("A plan save was incorrectly treated as a run archive")
+    window._confirm_unarchived_close = lambda _records: "cancel"
+    close_event = QCloseEvent()
+    window.closeEvent(close_event)
+    if close_event.isAccepted() or not window.isVisible():
+        raise RuntimeError("Returning from the unsaved warning did not keep the window open")
+
+    archive = workspace/"practice-run.pyea"
+    prepared = prepare_run_archive(record, mode="full")
+    window._prepared_archive = prepared
+    window._archive_saving_record = record
+    window._archive_destination = str(archive)
+    operation_failures = []
+    window.operation_manager.failed.connect(lambda _generation, details: operation_failures.append(details))
+    window._start_operation("save", lambda cancel, progress: prepared.commit(archive, cancel=cancel, progress=progress))
+    _wait_for_condition(app, lambda: not window.operation_manager.active, "practice archive commit")
+    if operation_failures or not archive.is_file() or window.unarchived_records():
+        raise RuntimeError("Committed archive was not attributed to its original record")
+    window.open_run_archive(archive)
+    _wait_for_condition(app, lambda: not window.operation_manager.active, "practice archive reopen")
+    if operation_failures or len(window.session.history) != 2 or window.unarchived_records():
+        raise RuntimeError("Reopened archive was incorrectly counted as unsaved")
+    window.grab().save(str(workspace/"practice-results.png"))
+    evidence["usability_smoke"] = {
+        "status": "pass", "input_roles_with_examples": list(INPUT_ROLES),
+        "learning_pack_file_count": len(list(pack.iterdir())), "practice_import_rows": 201,
+        "metric_id": "individual.pupil_left.mean", "metric_value": float(row.iloc[0]["value"]),
+        "metric_status": str(row.iloc[0]["status"]), "overall_run_status": record.status,
+        "plan_file_roundtrip": True, "invalid_late_field_left_settings_and_generation_unchanged": True,
+        "plan_load_kept_data_and_history": True, "plan_save_did_not_archive_results": True,
+        "cancel_close_kept_window": True, "committed_archive_marked_original_record": True,
+        "reopened_archive_not_unsaved": True, "archive_sha256": _sha256_bytes(archive.read_bytes()),
+        "pdf_sha256": _sha256_bytes(read_resource_bytes("help/PYeyedata-user-guide-zh.pdf")),
+    }
+
+
 def run_diagnostic(config_path: str) -> int:
     """Run one allowlisted scenario and write evidence below its workspace."""
     workspace: Path | None = None
@@ -1392,6 +1509,8 @@ def run_diagnostic(config_path: str) -> int:
             _run_open_archive(app, window, config, evidence)
         elif config["scenario"] == "reliability-smoke":
             _run_reliability_smoke(app, window, workspace, evidence)
+        elif config["scenario"] == "usability-smoke":
+            _run_usability_smoke(app, window, workspace, evidence)
         evidence["status"] = "pass"
     except Exception as exc:
         failure = exc
@@ -1399,6 +1518,9 @@ def run_diagnostic(config_path: str) -> int:
     finally:
         try:
             if "window" in locals():
+                # Fixed diagnostics own synthetic records. Cleanup must not ask
+                # an unattended test process to make a user-facing exit choice.
+                window._confirm_unarchived_close = lambda _records: "discard"
                 window.close()
                 if "app" in locals():
                     app.processEvents()

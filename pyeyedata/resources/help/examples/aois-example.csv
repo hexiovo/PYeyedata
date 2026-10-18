@@ -1,0 +1,2 @@
+﻿aoi_id,stimulus_id,shape,aoi_name,xmin,ymin,xmax,ymax,unit,coordinate_frame,overlap_policy,priority
+SYNTHETIC_ONLY_A01,SYNTHETIC_ONLY_IMAGE,rectangle,左侧图片,0,0,500,400,px,synthetic_top_left,exclusive,1
