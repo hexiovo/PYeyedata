@@ -1,0 +1,3 @@
+﻿column,declared_demo_type,unit,interpretation_limit
+accuracy,binary,0/1,do not force continuous correlation; method support must be explicit
+reaction_time_s,continuous,s,use only with explicit one-to-one join keys and an eligible method

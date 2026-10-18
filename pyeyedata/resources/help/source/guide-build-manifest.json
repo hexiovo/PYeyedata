@@ -1,0 +1,28 @@
+{
+  "application_version": "0.9.0",
+  "guide_version": "0.9.0",
+  "base_pdf": {
+    "path": "source/PYeyedata-user-guide-zh-base.pdf",
+    "sha256": "d40f3b57d15a451a8f4333a9e549c11fa69b748ce4a62788f0ce9716390a686f"
+  },
+  "builder": {
+    "path": "build_user_guide.py",
+    "sha256": "4b287b858e6b0ea489ccbd1f29285c093dd182d797065e313c71adce1340d9bf"
+  },
+  "font": {
+    "path": "fonts/PYeyedataCJK-Regular.ttf",
+    "sha256": "3880e685b37744c7713cd5657d74cc7d570754c802916af9496f36c42127bd22",
+    "glyph_check": "all added strings covered by the bundled font cmap"
+  },
+  "output_pdf": {
+    "path": "PYeyedata-user-guide-zh.pdf",
+    "sha256": "966930d8932704817e2cf244200ce029ec56d709aff7fbace594d3c081acb409",
+    "pages": 8,
+    "layout": "pypdf vector/text overlays; all original pages retained"
+  },
+  "qa_tooling": {
+    "pypdf": "6.10.0",
+    "reportlab": "4.4.9",
+    "scope": "release-authoring QA only; excluded from application runtime"
+  }
+}

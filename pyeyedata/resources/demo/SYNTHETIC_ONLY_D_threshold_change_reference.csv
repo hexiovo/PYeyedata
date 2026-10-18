@@ -1,0 +1,5 @@
+﻿setting,candidate_value_a,candidate_value_b,unit,note
+fixation_method,ivt,ivt,enum,candidate method names only; actual UI/config support must be checked
+velocity_threshold_deg_s,30,100,deg/s,"synthetic angular coordinates; this parameter change is a workflow recipe, not a measured outcome"
+high_velocity_deg_s,150,150,deg/s,kept above both candidate fixation thresholds; no event result is claimed
+raw_pupil_inputs,same fixture bytes,same fixture bytes,source data,input-layer identity only; downstream recomputation/reuse remains NOT_RUN

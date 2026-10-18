@@ -1,0 +1,2 @@
+﻿subject_id,session_id,time_s,gaze_x,gaze_y,gaze_valid,gaze_left_valid,gaze_right_valid,pupil_left,pupil_right,stimulus_id,condition,trial
+SYNTHETIC_ONLY_TEMPLATE_P01,SYNTHETIC_ONLY_TEMPLATE_S01,0.0,500,300,1,1,1,3.2,3.1,SYNTHETIC_ONLY_STIMULUS_01,SYNTHETIC_ONLY_condition,1

@@ -1,0 +1,273 @@
+{
+  "schema": "pyeyedata.synthetic-demo-manifest/v1",
+  "label": "合成演示数据 / SYNTHETIC_ONLY",
+  "resource_version": "c03-resources/v3",
+  "recipe_version": "synthetic-eye-fixtures/v1",
+  "seed": 20261014,
+  "contract_version": "1.3.0",
+  "generator": "generate_demo.py",
+  "generator_sha256": "b1660e44b15b155fdcb58eb3479f40bf97eacc24816022d8cebfe915fe78207f",
+  "determinism": "Python random.Random(seed), analytic trajectories, fixed field order, UTF-8-SIG CSV, CRLF line endings",
+  "scenarios": {
+    "A": {
+      "title": "低采样率 XY 与矩形 AOI / Low-rate XY and rectangle AOIs",
+      "sampling_hz": 10,
+      "rows": 21,
+      "identity": {
+        "subject_id": "SYNTHETIC_ONLY_A_P01",
+        "session_id": "SYNTHETIC_ONLY_A_S01"
+      },
+      "input_roles": [
+        "signals",
+        "segments",
+        "aois"
+      ],
+      "limits": [
+        "Synthetic software fixture only; no event, participant, device, or physiology claim."
+      ],
+      "aoi_domain_schema_version": "2.0.0",
+      "aoi_geometry_method_version": "static-aoi-geometry-2.0.0",
+      "aoi_boundary_policy": "closed"
+    },
+    "B": {
+      "title": "四成员共享互动、六对参考与 AOI / Four-member shared interaction and AOIs",
+      "sampling_hz": 4,
+      "members": [
+        {
+          "subject_id": "SYNTHETIC_ONLY_B_P01",
+          "session_id": "SYNTHETIC_ONLY_B_S01"
+        },
+        {
+          "subject_id": "SYNTHETIC_ONLY_B_P02",
+          "session_id": "SYNTHETIC_ONLY_B_S02"
+        },
+        {
+          "subject_id": "SYNTHETIC_ONLY_B_P03",
+          "session_id": "SYNTHETIC_ONLY_B_S03"
+        },
+        {
+          "subject_id": "SYNTHETIC_ONLY_B_P04",
+          "session_id": "SYNTHETIC_ONLY_B_S04"
+        }
+      ],
+      "possible_pairs": 6,
+      "interaction_id": "SYNTHETIC_ONLY_B_INTERACTION_01",
+      "generated_common_timebase": "SYNTHETIC_ONLY_B_GENERATED_CLOCK",
+      "member_shifts_s": {
+        "SYNTHETIC_ONLY_B_P01": 0.0,
+        "SYNTHETIC_ONLY_B_P02": 0.25,
+        "SYNTHETIC_ONLY_B_P03": -0.25,
+        "SYNTHETIC_ONLY_B_P04": 0.5
+      },
+      "pair_shift_reference": "SYNTHETIC_ONLY_B_pair_shift_reference.csv",
+      "segment_scope_setup": {
+        "mode": "shared_interaction",
+        "synchronized": true,
+        "timebase_id": "SYNTHETIC_ONLY_B_GENERATED_CLOCK",
+        "member_session_map": [
+          {
+            "subject_id": "SYNTHETIC_ONLY_B_P01",
+            "session_id": "SYNTHETIC_ONLY_B_S01",
+            "interaction_id": "SYNTHETIC_ONLY_B_INTERACTION_01",
+            "timebase_id": "SYNTHETIC_ONLY_B_GENERATED_CLOCK"
+          },
+          {
+            "subject_id": "SYNTHETIC_ONLY_B_P02",
+            "session_id": "SYNTHETIC_ONLY_B_S02",
+            "interaction_id": "SYNTHETIC_ONLY_B_INTERACTION_01",
+            "timebase_id": "SYNTHETIC_ONLY_B_GENERATED_CLOCK"
+          },
+          {
+            "subject_id": "SYNTHETIC_ONLY_B_P03",
+            "session_id": "SYNTHETIC_ONLY_B_S03",
+            "interaction_id": "SYNTHETIC_ONLY_B_INTERACTION_01",
+            "timebase_id": "SYNTHETIC_ONLY_B_GENERATED_CLOCK"
+          },
+          {
+            "subject_id": "SYNTHETIC_ONLY_B_P04",
+            "session_id": "SYNTHETIC_ONLY_B_S04",
+            "interaction_id": "SYNTHETIC_ONLY_B_INTERACTION_01",
+            "timebase_id": "SYNTHETIC_ONLY_B_GENERATED_CLOCK"
+          }
+        ],
+        "meaning": "generated simulation clock only; not hardware synchronization or device verification"
+      },
+      "limits": [
+        "Construction shifts are known inputs, not app-estimated lags or scientific validation."
+      ],
+      "aoi_domain_schema_version": "2.0.0",
+      "aoi_geometry_method_version": "static-aoi-geometry-2.0.0",
+      "aoi_boundary_policy": "closed"
+    },
+    "C": {
+      "title": "重复条件及二元准确率/连续反应时 / Repeated conditions with binary accuracy and continuous RT",
+      "subjects": [
+        "SYNTHETIC_ONLY_C_P01",
+        "SYNTHETIC_ONLY_C_P02",
+        "SYNTHETIC_ONLY_C_P03",
+        "SYNTHETIC_ONLY_C_P04"
+      ],
+      "conditions": [
+        "SYNTHETIC_ONLY_C_condition_A",
+        "SYNTHETIC_ONLY_C_condition_B"
+      ],
+      "trials_per_subject_condition": 3,
+      "performance_columns": {
+        "accuracy": {
+          "type": "binary",
+          "unit": "0/1"
+        },
+        "reaction_time_s": {
+          "type": "continuous",
+          "unit": "s"
+        }
+      },
+      "candidate_join_keys": [
+        "subject_id",
+        "session_id",
+        "condition",
+        "trial"
+      ],
+      "performance_reference": "SYNTHETIC_ONLY_C_performance_type_reference.csv",
+      "limits": [
+        "No statistical result is precomputed; method eligibility, sample support, and inference remain for the real app to determine."
+      ]
+    },
+    "D": {
+      "title": "阈值更改、原始瞳孔分支与取消/旧历史操作参考 / Threshold workflow, raw pupil channels, and cancel/history reference",
+      "sampling_hz": 20,
+      "identity": {
+        "subject_id": "SYNTHETIC_ONLY_D_P01",
+        "session_id": "SYNTHETIC_ONLY_D_S01"
+      },
+      "candidate_event_settings": {
+        "fixation_method": "ivt",
+        "velocity_threshold_deg_s": [
+          30,
+          100
+        ],
+        "high_velocity_deg_s": 150
+      },
+      "reference_table": "SYNTHETIC_ONLY_D_threshold_change_reference.csv",
+      "workflow_cases": [
+        "change threshold and inspect actual dependency recomputation",
+        "cancel an in-progress run",
+        "retain prior run/history",
+        "check raw pupil input identity across threshold-only change"
+      ],
+      "limits": [
+        "Fixture contains synthetic angular coordinates and independent raw pupil columns; workflow, event output, cache reuse, cancellation, histories, device validation, and physiology are NOT_RUN."
+      ]
+    }
+  },
+  "files": [
+    {
+      "path": "SYNTHETIC_ONLY_A_low_rate_signals.csv",
+      "format": "csv",
+      "sha256": "98d2cb3f25250e23e955b19791151eb88fbe530451a2e680b95f51c1aab80141",
+      "byte_size": 2837,
+      "data_rows": 21
+    },
+    {
+      "path": "SYNTHETIC_ONLY_A_segments.csv",
+      "format": "csv",
+      "sha256": "f950ce8f303992d37c9f390a7da155489b36b946ef39969f255a5e30a05f9e98",
+      "byte_size": 250,
+      "data_rows": 1
+    },
+    {
+      "path": "SYNTHETIC_ONLY_A_aois.csv",
+      "format": "csv",
+      "sha256": "df8c1c40f3fcd3d3eacf329ed76fc268856c52a623704840b5762b12288a6a74",
+      "byte_size": 376,
+      "data_rows": 2
+    },
+    {
+      "path": "SYNTHETIC_ONLY_B_shared_interaction_signals.csv",
+      "format": "csv",
+      "sha256": "29b2af2963b8d40860b1dace1df2e7911620554a04ffc2fc13284af9efd617be",
+      "byte_size": 38761,
+      "data_rows": 196
+    },
+    {
+      "path": "SYNTHETIC_ONLY_B_shared_interaction_segments.csv",
+      "format": "csv",
+      "sha256": "1ef2f33f52ed5f8ba102cf13057febf175bd03544426361e899c9e457bf5d44b",
+      "byte_size": 319,
+      "data_rows": 1
+    },
+    {
+      "path": "SYNTHETIC_ONLY_B_shared_interaction_aois.csv",
+      "format": "csv",
+      "sha256": "c3d6a6eefe987e58a31368d30089e826ca2b1911dffb6abeb37c80ca6f049e44",
+      "byte_size": 374,
+      "data_rows": 2
+    },
+    {
+      "path": "SYNTHETIC_ONLY_B_pair_shift_reference.csv",
+      "format": "csv",
+      "sha256": "92501e1a55a701005c83a2fcabdb85b59e1e97ce5316f172665a37f50bca82d7",
+      "byte_size": 430,
+      "data_rows": 2
+    },
+    {
+      "path": "SYNTHETIC_ONLY_C_repeated_conditions_signals.csv",
+      "format": "csv",
+      "sha256": "6669f3c62a055c3a9166977e4117bf0f088d6e1f1ba3dc893b7dba3fd57b7d57",
+      "byte_size": 66718,
+      "data_rows": 504
+    },
+    {
+      "path": "SYNTHETIC_ONLY_C_repeated_conditions_segments.csv",
+      "format": "csv",
+      "sha256": "d48ff222b5e0d272e80ee875e83281f9c5758db796fd362be816a1c9de98d7ab",
+      "byte_size": 4160,
+      "data_rows": 24
+    },
+    {
+      "path": "SYNTHETIC_ONLY_C_performance.csv",
+      "format": "csv",
+      "sha256": "ab828c1a7e0056751a1d4390adeefdfe6de7a5c2a7318a103b2c9ba8b71354cd",
+      "byte_size": 2059,
+      "data_rows": 24
+    },
+    {
+      "path": "SYNTHETIC_ONLY_C_performance_type_reference.csv",
+      "format": "csv",
+      "sha256": "d40de27c3620667f163a8a9fa256e96020cb1eb54c798981edc134a4eb827e70",
+      "byte_size": 243,
+      "data_rows": 2
+    },
+    {
+      "path": "SYNTHETIC_ONLY_D_threshold_pupil_signals.csv",
+      "format": "csv",
+      "sha256": "b59c01cb212c83d250315271413cb96c23086c7aa89fe68ae97265f7af684fca",
+      "byte_size": 18475,
+      "data_rows": 121
+    },
+    {
+      "path": "SYNTHETIC_ONLY_D_segments.csv",
+      "format": "csv",
+      "sha256": "044c6b0b20e94559948727049e9ccad1ef4c8d04f24d99f2104b2f29d3e04f3c",
+      "byte_size": 268,
+      "data_rows": 1
+    },
+    {
+      "path": "SYNTHETIC_ONLY_D_threshold_change_reference.csv",
+      "format": "csv",
+      "sha256": "f88d335026c49777a6c4c91dc3c2e0ef16a15ae4e5433cd68e7f5ec3de2e635f",
+      "byte_size": 548,
+      "data_rows": 4
+    }
+  ],
+  "device_verified": false,
+  "device_validation_status": "NOT_RUN",
+  "physiology_validation_status": "NOT_RUN",
+  "guide_screenshots": "pending actual themed GUI controls; no screenshot or final PDF guide is included in this resource build",
+  "aoi_contract": {
+    "domain_schema_version": "2.0.0",
+    "geometry_method_version": "static-aoi-geometry-2.0.0",
+    "boundary_policy": "closed",
+    "validation_status": "Resource-owner checks passed for public AOI normalization and static geometry audit on bundled examples; independent C05 acceptance is not claimed."
+  }
+}

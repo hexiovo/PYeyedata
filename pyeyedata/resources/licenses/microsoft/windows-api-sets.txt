@@ -1,0 +1,178 @@
+Table of contents
+
+Exit editor mode
+
+Ask Learn
+
+Ask Learn
+
+Reading mode
+
+Table of contents
+
+Read in English
+
+Add
+
+Add to Plans
+
+Edit
+
+Copy Markdown
+
+Print
+
+Note
+
+Access to this page requires authorization. You can try signing in or changing directories.
+
+Access to this page requires authorization. You can try changing directories.
+
+Windows API sets
+
+Feedback
+
+Summarize this article for me
+
+In this article
+
+Important
+
+The info in this topic applies to all versions of Windows 10, and later. We'll refer to those versions here as "Windows", calling out any exceptions where necessary.
+
+All versions of Windows share a common base of operating system (OS) components that's called the core OS (in some contexts this common base is also called OneCore). In core OS components, Win32 APIs are organized into functional groups called API sets.
+
+The purpose of an API set is to provide an architectural separation between the host DLL in which a given Win32 API is implemented, and the functional contract to which the API belongs. The decoupling that API sets provide between implementation and contracts offers many engineering advantages for developers. In particular, using API sets in your code can improve compatibility with Windows devices.
+
+API sets specifically address the following scenarios:
+
+Although the full breadth of the Win32 API is supported on PCs, only a subset of the Win32 API is available on other Windows devices such as HoloLens, XBOX, and other devices. An API set name gives you a stable thing to ask about, so that your app can detect at run time whether a capability is available on the current device. The query itself is performed by the IsApiSetImplemented function.
+
+Some Win32 API implementations exist in DLLs with different names across different Windows devices. Using API set names instead of DLL names when detecting API availability and delay loading APIs provides a correct route to the implementation no matter where the API is actually implemented.
+
+For more details, see API set loader operation and Detect API set availability.
+
+Are API sets and DLLs the same thing?
+
+No—an API set name identifies a contract, not a file. At run time the loader resolves that contract through the API set schema on the current device, and routes the reference to the DLL that hosts the implementation. It's an implementation-hiding technique, where you as the caller don't have to know exactly which module is hosting the information.
+
+The technique allows modules to be refactored (split apart, consolidated, renamed, and so on) on different Windows versions and editions. And your apps still link, and still get routed to the correct code at run time.
+
+So why do API sets have .dll in their names? The reason is the way the DLL loader is implemented. The loader is the part of the OS that loads DLLs and/or resolves references to DLLs, and it identifies what to load by a module name spelled the way file names are spelled in an import table. API set names follow the same convention so that they fit in the same place.
+
+The loader recognizes a name that begins with api- or ext- and routes it to the API set runtime, an extension of the loader that resolves contracts through the schema. From that point the name is parsed by API set naming rules rather than as a file name, so the .dll suffix isn't part of the contract name being resolved.
+
+You can pass an API set name to LoadLibrary, or use it as a delay-load target. The operation succeeds when the schema on the current device maps that contract to a usable host; there isn't necessarily an actual file with that name anywhere on the PC. If the contract isn't mapped on the current device, a direct LoadLibrary fails. A delay-loaded reference behaves differently: the process still loads, and the absence surfaces later, when the API is called.
+
+Either way, a successful link or load isn't by itself evidence that an implementation is present. To determine that, see Detect API set availability.
+
+Linking umbrella libraries
+
+To make it easier to restrict your code to Win32 APIs that are supported in the core OS, we provide a series of umbrella libraries. An umbrella library lets you link a single library instead of identifying the individual import library for each API that you call.
+
+For more details, and to choose the umbrella library that matches what you're targeting, see Windows umbrella libraries.
+
+API set contract names
+
+API sets are identified by a contract name that follows conventions recognized by the library loader.
+
+All contract names share these conventions:
+
+The name begins either with the string api- or ext-.
+
+The body of the name can be alphanumeric characters, or dashes (-). A tilde (~) appears only as the separator before a group name.
+
+The name is case insensitive.
+
+Two forms of contract name are in use, and you can encounter either one.
+
+A versioned contract name ends with the sequence l<n>-<n>-<n>, where n consists of decimal digits—for example, ext-ms-win-core-samplefeature-l1-1-0. The trailing numbers identify one specific version of the contract, and a name in this form should be considered an immutable identifier for that version.
+
+A contract alias carries no version—for example, api-win-core-samplefeature. It identifies the contract itself rather than one version of it. When a contract organizes its individually available capabilities into named groups, a group is addressed by appending the group name to the contract alias, separated by a tilde: api-win-core-samplefeature~AdvancedOperations.
+
+The samplefeature names used here are illustrative names for a fictional Windows component.
+
+The api- and ext- prefixes
+
+The prefix is a naming convention. It was originally intended to distinguish contracts that are present on every qualifying edition (api-) from contracts that might be absent (ext-). That distinction wasn't consistently applied, and a contract's role can change over time without the contract being renamed.
+
+The loader assigns no significance to the prefix; it resolves api- and ext- names by the same rules. Don't infer availability from the prefix. Query it instead—see Detect API set availability.
+
+Using a contract name
+
+Two different kinds of operation take a contract name.
+
+Loader operations—such as LoadLibrary or P/Invoke—take the contract name in the same place where a DLL module name ordinarily appears. An appended .dll is conventional in that context, but it isn't required by API set name resolution and isn't part of the contract name. Use a contract name instead of a physical DLL module name to ensure a correct route to the implementation no matter where the API is actually implemented on the current device. There doesn't need to be a file with that contract name on disk.
+
+Availability-query examples conventionally omit the .dll suffix and use the form that matches how the API is addressed:
+
+API surface
+
+Query form
+
+Example
+
+Named group
+
+<contract>~<group>
+
+api-win-core-samplefeature~AdvancedOperations
+
+Default group
+
+Contract alias, without ~Default
+
+api-win-core-samplefeature
+
+Versioned contract
+
+Complete versioned contract name
+
+ext-ms-win-core-samplefeature-l1-1-0
+
+A group name can't be combined with a versioned contract name.
+
+Identifying API sets for Win32 APIs
+
+To identify whether a particular Win32 API belongs to an API set, review the requirements table in the reference documentation for the API. If the API belongs to an API set, the requirements table in the article lists the API set name and the Windows version in which the API was first introduced to the API set. For examples of APIs that belong to an API set, see these articles:
+
+AllowSetForegroundWindow
+
+FindWindowEx
+
+GetClassFile
+
+If the API's header supplies an Is<APIName>Present helper function, prefer that helper when you test for availability. It already contains the correct name for the API set or group that carries the API. For more info, see Detect API set availability.
+
+In this section
+
+API set loader operation
+
+Detect API set availability
+
+Windows umbrella libraries
+
+Feedback
+
+Was this page helpful?
+
+Yes
+
+No
+
+No
+
+Need help with this topic?
+
+Want to try using Ask Learn to clarify or guide you through this topic?
+
+Ask Learn
+
+Ask Learn
+
+Suggest a fix?
+
+Additional resources
+
+Last updated on
+2026-09-10

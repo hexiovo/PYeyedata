@@ -1,0 +1,2 @@
+﻿subject_id,session_id,interaction_id,segment_id,segment_name,start_s,end_s,condition,trial,stimulus_id,timebase_id
+,,SYNTHETIC_ONLY_B_INTERACTION_01,SYNTHETIC_ONLY_B_SHARED_SEG01,合成共享互动窗口,0.000000,12.000000,SYNTHETIC_ONLY_B_shared_task,1,SYNTHETIC_ONLY_STIMULUS_01,SYNTHETIC_ONLY_B_GENERATED_CLOCK

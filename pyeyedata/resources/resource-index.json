@@ -1,0 +1,229 @@
+{
+  "schema": "pyeyedata.resource-index/v1",
+  "resource_version": "c03-resources/v3",
+  "contract_version": "1.3.0",
+  "resource_path_api": "pyeyedata.resource_paths.resource_path(relative_path: str) -> ContextManager[Path]",
+  "resource_root": "pyeyedata/resources/",
+  "roles": {
+    "signals": {
+      "workbook": "templates/signals-contract-1.3.0.xlsx",
+      "empty_template": {
+        "csv": "templates/signals-contract-1.3.0.csv",
+        "xlsx": "templates/signals-contract-1.3.0.xlsx",
+        "xlsx_sheet": "empty_template"
+      },
+      "example": {
+        "csv": "templates/signals-example-contract-1.3.0.csv",
+        "xlsx": "templates/signals-contract-1.3.0.xlsx",
+        "xlsx_sheet": "example",
+        "synthetic_label": "SYNTHETIC_ONLY"
+      },
+      "field_sheet": {
+        "workbook": "templates/signals-contract-1.3.0.xlsx",
+        "sheet": "fields"
+      },
+      "field_guide": "templates/field-guide-zh-en.md",
+      "example_page": "templates/example-pages-zh-en.md",
+      "workbook_sheet_instruction": "Explicitly select empty_template or example; the fields sheet is documentation and must not be imported.",
+      "status": "available",
+      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row."
+    },
+    "segments": {
+      "workbook": "templates/segments-contract-1.3.0.xlsx",
+      "empty_template": {
+        "csv": "templates/segments-contract-1.3.0.csv",
+        "xlsx": "templates/segments-contract-1.3.0.xlsx",
+        "xlsx_sheet": "empty_template"
+      },
+      "example": {
+        "csv": "templates/segments-example-contract-1.3.0.csv",
+        "xlsx": "templates/segments-contract-1.3.0.xlsx",
+        "xlsx_sheet": "example",
+        "synthetic_label": "SYNTHETIC_ONLY"
+      },
+      "field_sheet": {
+        "workbook": "templates/segments-contract-1.3.0.xlsx",
+        "sheet": "fields"
+      },
+      "field_guide": "templates/field-guide-zh-en.md",
+      "example_page": "templates/example-pages-zh-en.md",
+      "workbook_sheet_instruction": "Explicitly select empty_template or example; the fields sheet is documentation and must not be imported.",
+      "status": "available",
+      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row."
+    },
+    "aois": {
+      "workbook": "templates/aois-contract-1.3.0.xlsx",
+      "empty_template": {
+        "csv": "templates/aois-contract-1.3.0.csv",
+        "xlsx": "templates/aois-contract-1.3.0.xlsx",
+        "xlsx_sheet": "empty_template"
+      },
+      "example": {
+        "csv": "templates/aois-example-contract-1.3.0.csv",
+        "xlsx": "templates/aois-contract-1.3.0.xlsx",
+        "xlsx_sheet": "example",
+        "synthetic_label": "SYNTHETIC_ONLY"
+      },
+      "field_sheet": {
+        "workbook": "templates/aois-contract-1.3.0.xlsx",
+        "sheet": "fields"
+      },
+      "field_guide": "templates/field-guide-zh-en.md",
+      "example_page": "templates/example-pages-zh-en.md",
+      "workbook_sheet_instruction": "Explicitly select empty_template or example; the fields sheet is documentation and must not be imported.",
+      "status": "AOI source resources are available; resource-owner normalization and geometry checks passed for the bundled example; independent C05 acceptance is not claimed.",
+      "note": "The example uses JSON polygon vertices, explicit exclusive priorities, and declared coordinate metadata; its resource-owner normalization and geometry audit passed.",
+      "domain_schema_version": "2.0.0",
+      "geometry_method_version": "static-aoi-geometry-2.0.0",
+      "boundary_policy": "closed",
+      "source_columns_required": [
+        "aoi_id",
+        "stimulus_id",
+        "shape",
+        "aoi_name"
+      ],
+      "source_columns_optional": [
+        "xmin",
+        "ymin",
+        "xmax",
+        "ymax",
+        "vertices",
+        "unit",
+        "coordinate_frame",
+        "overlap_policy",
+        "priority"
+      ]
+    },
+    "performance": {
+      "workbook": "templates/performance-contract-1.3.0.xlsx",
+      "empty_template": {
+        "csv": "templates/performance-contract-1.3.0.csv",
+        "xlsx": "templates/performance-contract-1.3.0.xlsx",
+        "xlsx_sheet": "empty_template"
+      },
+      "example": {
+        "csv": "templates/performance-example-contract-1.3.0.csv",
+        "xlsx": "templates/performance-contract-1.3.0.xlsx",
+        "xlsx_sheet": "example",
+        "synthetic_label": "SYNTHETIC_ONLY"
+      },
+      "field_sheet": {
+        "workbook": "templates/performance-contract-1.3.0.xlsx",
+        "sheet": "fields"
+      },
+      "field_guide": "templates/field-guide-zh-en.md",
+      "example_page": "templates/example-pages-zh-en.md",
+      "workbook_sheet_instruction": "Explicitly select empty_template or example; the fields sheet is documentation and must not be imported.",
+      "status": "available",
+      "note": "Empty template is header-only; example file contains one SYNTHETIC_ONLY row."
+    }
+  },
+  "help_guide": {
+    "status": "available",
+    "resource_path": "help/PYeyedata-user-guide-zh.pdf",
+    "application_version": "0.9.0",
+    "guide_version": "0.9.0",
+    "sha256": "966930d8932704817e2cf244200ce029ec56d709aff7fbace594d3c081acb409"
+  },
+  "fonts": {
+    "path": "fonts/PYeyedataCJK-Regular.ttf",
+    "license": "fonts/OFL.txt",
+    "source_manifest": "fonts/font-source.json",
+    "usage": "Keep the resource_path context open through registration and the complete render/export."
+  },
+  "application_version": "0.9.0",
+  "licenses": {
+    "status": "Offline license texts and source notices are grouped by the pinned distributions and Qt upstream modules represented in the preparation inventory. The 281 native rows are mapped against the CPython 3.12.10 Matplotlib-export Analysis; the clean-root final build and release evidence must still reconcile every actual row, file hash, source group, license/notice, and rebuild route. Microsoft names, file versions, hashes, and source paths do not by themselves establish redistribution entitlement; external binary redistribution remains outside the task scope.",
+    "source_manifest": "licenses/source-manifest.json",
+    "material_sha256": {
+      "licenses/APACHE-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "licenses/GPL-3.0.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "licenses/LGPL-3.0.txt": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
+      "licenses/MICROSOFT-RUNTIME-NOTICE.md": "4b75831f79ba709b8a275e4ccb5947b65c6a61f0561ebc8a570d3b022f769317",
+      "licenses/PYINSTALLER-COPYING.txt": "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245",
+      "licenses/QT-SOURCE-AND-REBUILD.md": "e78cc2fd409e499be57837771dea01b2ae3eecd5985a564f96e8f617705c2981",
+      "licenses/THIRD-PARTY-NOTICES.md": "1c1b45ec2419665b16d05720bc23c4ed8d034ff29bb9b5a4a6dcdade9a453da8",
+      "licenses/matplotlib/Matplotlib-3.9.4-LICENSE_BAKOMA.txt": "93adb2b53c02b7ce06b26bff41358c21248f42fed287b633ec4c31038377cdbb",
+      "licenses/microsoft/latest-supported-vc-redist.txt": "a0adde39c349f87289b5092636a97bd9f8e0bebdd5947868c501e6b31edf181c",
+      "licenses/microsoft/universal-crt-deployment.txt": "9bce224eaa8ff3591086a3bb4662206ff236c76eee1d67c01ce47347186b3fa2",
+      "licenses/microsoft/vc-runtime-eula-2015-2022.txt": "2a97159556a37c43b4db25bcfd1a6464c76bb7d60460b9aef963faac960add98",
+      "licenses/microsoft/vc-v14-redist-runtime-eula.txt": "90f543a1c1636c556fc80c024b8e9059d8212d19c5ec0681c78b11cad382a563",
+      "licenses/microsoft/visual-cpp-redistributing-files.txt": "09acb514537fdbfc5e73cc4c5f1e1b9b64d023355d4cd18d513c352632e35d04",
+      "licenses/microsoft/visual-studio-2022-redist-list.txt": "c38fe367a35e811ca73057dc1113ddb225b35ed2e4c39d035e4ec5a14e405a26",
+      "licenses/microsoft/windows-api-sets.txt": "21fdf118d9cdac80d431090e73cfe0b1eb4cb6da968cb0a597bc3cb77cf0a008",
+      "licenses/microsoft/windows-sdk-license.txt": "ff37af624c2e0b9c59671087cd05878e75c1104c092aec1b414cc147e1aced5d",
+      "licenses/microsoft/windows-sdk-redist-list.txt": "a2a9367a0f20954579465a4f8b118a555aa0a98b98a11a6567e20718fc6dd49d",
+      "licenses/packages/chardet-7.6.0/chardet-7.6.0.dist-info/licenses/LICENSE.txt": "0517f574b0183d991eb7a9ec5dbf0add8d8ade5ac00341bd28ca0c18914d52e5",
+      "licenses/packages/contourpy-1.3.3/contourpy-1.3.3.dist-info/LICENSE.txt": "8553102e03001dd966278098cc027d0683c412b34ea141351b060be4330f39a9",
+      "licenses/packages/cycler-0.12.1/cycler-0.12.1.dist-info/LICENSE.txt": "f1218143d766da3fea66f13396b7f15df46a83303f29bf96ba6e98eb4d42f408",
+      "licenses/packages/et-xmlfile-2.0.0/et_xmlfile-2.0.0.dist-info/LICENCE.python.txt": "4ccdaaebc0f44b83720ec0399bb7ab329adce067dd62f73c5535a2dc05628ab2",
+      "licenses/packages/et-xmlfile-2.0.0/et_xmlfile-2.0.0.dist-info/LICENCE.txt": "0c84bb42f5d367e5ebf9fc2dde35b16141df5ee0fdc189250858bc6c5560f69e",
+      "licenses/packages/fonttools-4.66.1/fonttools-4.66.1.dist-info/licenses/LICENSE.external.txt": "b082a5f86775b2641f01bccb8b9c82908481de5f502bb254b1e13bfc2a9f303d",
+      "licenses/packages/fonttools-4.66.1/fonttools-4.66.1.dist-info/licenses/LICENSE.txt": "22bef80697ecfaa17f97e62b9a26dfa12820be05583e8dd12ad169b241274c99",
+      "licenses/packages/kiwisolver-1.5.1/kiwisolver-1.5.1.dist-info/licenses/LICENSE.txt": "b24c2bf6185f31a124ad6bacccae3071bdc7ad7882de00b00110aa62abb76a15",
+      "licenses/packages/matplotlib-3.9.4/matplotlib-3.9.4.dist-info/LICENSE.txt": "5a1a81ea301728c8bba2933da832c0cd62229daf20893a024ab3d53244468dbc",
+      "licenses/packages/matplotlib-3.9.4/matplotlib/mpl-data/fonts/pdfcorefonts/readme.txt": "311bfca694884d86006fb96de443b0f4359635921b95fc6c161bb94d013b7292",
+      "licenses/packages/matplotlib-3.9.4/matplotlib/mpl-data/fonts/ttf/LICENSE_DEJAVU.txt": "d75938dec098f06f0ac3c00853065d94f020be1c3c62ef1dc2975ba15b4d9b0e",
+      "licenses/packages/matplotlib-3.9.4/matplotlib/mpl-data/fonts/ttf/LICENSE_STIX.txt": "bab3d31dfef07f483624f2f65f2711e76065b8e7273278b1c071ede1041c9959",
+      "licenses/packages/multimatch-gaze-0.1.3/multimatch_gaze-0.1.3.dist-info/LICENSE.txt": "973ff94ea810e7d2d41e0a48cce6f0dea4b946cf83241922fba15fbc7ad96f81",
+      "licenses/packages/numpy-1.26.4/numpy-1.26.4.dist-info/LICENSE.txt": "e261222a74adff28f88160dac1c5cb302d93b67e9ca989eb83bf311e11a9970a",
+      "licenses/packages/numpy-1.26.4/numpy/core/include/numpy/random/LICENSE.txt": "d544761558b510866c21f7e8a2d5716fca76e0b98117e3b6b86314db7244d150",
+      "licenses/packages/numpy-1.26.4/numpy/ma/LICENSE.txt": "d78dbb208b80d92b4d333e41a4baae50d12444f46e53199fa7726a91de6e2da7",
+      "licenses/packages/numpy-1.26.4/numpy/random/LICENSE.md": "b4bc2f4fa1c95778f1ed3dd8f14706bece399475b978f9f34b5d3cd72521b48a",
+      "licenses/packages/openpyxl-3.1.5/openpyxl-3.1.5.dist-info/LICENCE.txt": "0c84bb42f5d367e5ebf9fc2dde35b16141df5ee0fdc189250858bc6c5560f69e",
+      "licenses/packages/packaging-26.3/packaging-26.3.dist-info/licenses/LICENSE.txt": "cad1ef5bd340d73e074ba614d26f7deaca5c7940c3d8c34852e65c4909686c48",
+      "licenses/packages/pandas-2.2.3/pandas-2.2.3.dist-info/LICENSE.txt": "533eb6d0b98e5be3ddd12dce97be35dd11282f5c47cdf8d08c81756fd5d70a26",
+      "licenses/packages/patsy-1.0.3/patsy-1.0.3.dist-info/licenses/LICENSE.txt": "3f24a323933d367910f328abfb21f8d17891ef3867d941015de7293a5ba84ebc",
+      "licenses/packages/pillow-12.3.0/pillow-12.3.0.dist-info/licenses/LICENSE.txt": "4f7866a74802c6326f81faff59a56546b6aec2b10b91973e0e9308de95e79857",
+      "licenses/packages/pyparsing-3.3.3/pyparsing-3.3.3.dist-info/licenses/LICENSE.txt": "a5425f9dc14ac74d4c5f0b679e941f2442e32cca7452a4418d5b1a49893ebe4e",
+      "licenses/packages/pyside6-essentials-6.8.3/PySide6_Essentials-6.8.3.dist-info/LicenseRef-Qt-Commercial.txt": "4f54763ac0fe2abd8f7f8d8fe370a94a08ebf84786aa0b91045bd6628deb08a3",
+      "licenses/packages/python-dateutil-2.9.0.post0/python_dateutil-2.9.0.post0.dist-info/LICENSE.txt": "ba00f51a0d92823b5a1cde27d8b5b9d2321e67ed8da9bc163eff96d5e17e577e",
+      "licenses/packages/pytz-2026.5/pytz-2026.5.dist-info/LICENSE.txt": "be8b1a37ebe26c592a90f6c0eb33103a7f383ce2f4d7498c0af9a526990a07b8",
+      "licenses/packages/reportlab-4.2.5/reportlab-4.2.5.dist-info/LICENSE.txt": "a02a6aeb5dde4c4194494bc0b10d5ed62a32628ccd2882c363fdb9a7874ab2b8",
+      "licenses/packages/reportlab-4.2.5/reportlab/fonts/DarkGarden-copying-gpl.txt": "1b2a567f289f66a143c56353e7b3d4fa5862514a5e3c5cfdf8b02ee5e5aaa953",
+      "licenses/packages/reportlab-4.2.5/reportlab/fonts/DarkGarden-copying.txt": "3cd1020510efa7f6b3166a5a2740f92bd664a695ea179e0bda442e74cd0ef3a4",
+      "licenses/packages/reportlab-4.2.5/reportlab/fonts/bitstream-vera-license.txt": "3361d054759a2fc686a2c058be82deaf9c2e6fe549be9004d7935a6c1736315d",
+      "licenses/packages/scipy-1.14.1/scipy-1.14.1.dist-info/LICENSE.txt": "52590289e7b452fbfd949dacf50e2813e3612abb7c116e5c7a0c27a496b9c5ef",
+      "licenses/packages/scipy-1.14.1/scipy/_lib/_uarray/LICENSE.txt": "e4c4acc31e8287066d7c995d26e3ef902ca1977ee187b260b11c278366503811",
+      "licenses/packages/scipy-1.14.1/scipy/fft/_pocketfft/LICENSE.md": "c04661685cff9d8035fe1c4c3ab357e7f7633cafc06a73e9d90c3c5fede8a86a",
+      "licenses/packages/scipy-1.14.1/scipy/sparse/linalg/_eigen/arpack/COPYING.txt": "fcb3c6c7de1460cf7d0863c3c5996e518eb8015a2eced36911f3da178440b3df",
+      "licenses/packages/scipy-1.14.1/scipy/spatial/qhull_src/COPYING.txt": "962452e737df7c743a3dc2744232071028b8c0450e7674a55057c330ea1977eb",
+      "licenses/packages/shiboken6-6.8.3/shiboken6-6.8.3.dist-info/LicenseRef-Qt-Commercial.txt": "4f54763ac0fe2abd8f7f8d8fe370a94a08ebf84786aa0b91045bd6628deb08a3",
+      "licenses/packages/six-1.17.0/six-1.17.0.dist-info/LICENSE.txt": "4375ba20e2b9c6c4e7cad2940a628fd90e95cc3d50ee92aae755715d8ba1fbd0",
+      "licenses/packages/statsmodels-0.14.4/statsmodels-0.14.4.dist-info/LICENSE.txt": "0897212c24b09ba69c4917490d8828081d60bb4303ec0045e553a9e470f38efa",
+      "licenses/packages/statsmodels-0.14.4/statsmodels/LICENSE.txt": "0897212c24b09ba69c4917490d8828081d60bb4303ec0045e553a9e470f38efa",
+      "licenses/packages/statsmodels-0.14.4/statsmodels/stats/libqsturng/LICENSE.txt": "973c83de0e81e9f6a2d4bc16b310032b18cacbe7bf2b162194069c94b15cc0cd",
+      "licenses/python/CPython-3.12.10-Doc-license.txt": "341832873fd316a37927e79385093fbbfd40a467428480835fe435a80cadf4e5",
+      "licenses/python/CPython-3.12.10-LICENSE.txt": "3b2f81fe21d181c499c59a256c8e1968455d6689d269aa85373bfb6af41da3bf",
+      "licenses/python/CPython-3.12.10-installed-LICENSE.txt": "e502c6b880ff58d614901495a9009c136539cd0b1e2a2abb8fc00b934c203419",
+      "licenses/qt/6.8.3/attributions/qtbase-double-conversion-qt_attribution.json": "b68e633437cce59dec970776f5c4d3b9fc39c5d9edaec03e8894591a6721d1ed",
+      "licenses/qt/6.8.3/attributions/qtbase-freetype-qt_attribution.json": "3bb2eabc9379310a420ec2461e85a3224396cf8ba15fd53591d770ca16715553",
+      "licenses/qt/6.8.3/attributions/qtbase-harfbuzz-ng-qt_attribution.json": "c998c9784a4a0021c2f68632a9e8cd5589dbc7f7336feeb156a4240b6b32d718",
+      "licenses/qt/6.8.3/attributions/qtbase-libjpeg-qt_attribution.json": "874587f89655d70e9926048b2c9f4f2c15f8795dc64e4a492f753cee06ed6432",
+      "licenses/qt/6.8.3/attributions/qtbase-libpng-qt_attribution.json": "2970938574023e02b60b5b7c75d21e11b7e4476cdc2c1a5386b01ac5bc678943",
+      "licenses/qt/6.8.3/attributions/qtbase-pcre2-qt_attribution.json": "cb7ae8b37a3e8e1d2a20fbe44fc5306ed5cda404035a667fed56f7139636048e",
+      "licenses/qt/6.8.3/attributions/qtbase-zlib-qt_attribution.json": "6a37eaf51d8ebb7bd19e01a9a2334da8557409acb520ef6d1813c6d742771030",
+      "licenses/qt/6.8.3/attributions/qtimageformats-libtiff-qt_attribution.json": "cfd9d4cf2b46176e99ec545542cd36bd4ca5bbed1eed4e8d79fc2554dfc42ec5",
+      "licenses/qt/6.8.3/attributions/qtimageformats-libwebp-qt_attribution.json": "71e8d96e66bf513d831d5451be486e7b81b0efe591ae54d07abb9afeb9e0f809",
+      "licenses/qt/6.8.3/qtbase/double-conversion/LICENSE.txt": "4af93c12062c58058378de2397dc1c92bbff9ddfb1d583a01c84127557ce97ca",
+      "licenses/qt/6.8.3/qtbase/freetype/BDF-LICENSE.txt": "e4e792f29e66750f2e410fd7b50a567652c180f6ee15e1a4dfa0bb5cde524537",
+      "licenses/qt/6.8.3/qtbase/freetype/FTL.TXT": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1",
+      "licenses/qt/6.8.3/qtbase/freetype/LICENSE.txt": "bf543cdda11864477b8d2ca2aa9afc2aaa8f9133461b4d962ed6ec73646256a1",
+      "licenses/qt/6.8.3/qtbase/freetype/PCF-LICENSE.txt": "6938597bfdeca0db191a8f9ede52eaf2482c2c71a0094c084747a1235f9958fe",
+      "licenses/qt/6.8.3/qtbase/freetype/ZLIB-LICENSE.txt": "2b1f5d615382a151af3eb71462ad17d89e2efee8fa7664058d35d3d9237ebb19",
+      "licenses/qt/6.8.3/qtbase/harfbuzz-ng/COPYING.txt": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64",
+      "licenses/qt/6.8.3/qtbase/libjpeg/COPYRIGHT.txt": "f26a2c0b6c1ab7e40444de31cc5b112a534cc589d6fd9b93620054e9692b81c6",
+      "licenses/qt/6.8.3/qtbase/libjpeg/LICENSE.txt": "96f5b328adbb78eeaaec6980d73fd558cb1e4d62560ed615646bc3cf5e532430",
+      "licenses/qt/6.8.3/qtbase/libjpeg/ijg-license.txt": "1cb448f5e2e6d3aca60943f4eee1a04675628dc0266a074a42bc1560ebc28d61",
+      "licenses/qt/6.8.3/qtbase/libpng/LICENSE.txt": "16d9daaafbf63a31a5bdc91d4600972548fef5aaa1244202393288dbd079c49a",
+      "licenses/qt/6.8.3/qtbase/pcre2/LICENCE.md": "9cf7ac6976099a1d856826d3ef1b093bd6b84489dc6100628ac79e740cf9885a",
+      "licenses/qt/6.8.3/qtbase/pcre2/SLJIT-LICENCE.txt": "5f216505c0f6ea3273caec89e766eef93cdeb7bbb0c429f9360116d7c938feeb",
+      "licenses/qt/6.8.3/qtbase/zlib/LICENSE.txt": "d7e3139972874dc8abdbbfce27ec1e6f942b28279dd7d27453630a8b4610e080",
+      "licenses/qt/6.8.3/qtimageformats/libtiff/COPYRIGHT.txt": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7",
+      "licenses/qt/6.8.3/qtimageformats/libwebp/COPYING.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+      "licenses/qt/6.8.3/qtimageformats/libwebp/PATENTS.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
+      "licenses/source-manifest.json": "987968b55aacb0288c4cd6bf0f72372d2030df809d279c14cd0e04bcc39702fa",
+      "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"
+    }
+  }
+}

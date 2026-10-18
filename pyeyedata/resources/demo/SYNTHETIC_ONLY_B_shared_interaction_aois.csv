@@ -1,0 +1,3 @@
+﻿aoi_id,stimulus_id,shape,aoi_name,xmin,ymin,xmax,ymax,vertices,unit,coordinate_frame,overlap_policy,priority
+SYNTHETIC_ONLY_B_ROI_LEFT,SYNTHETIC_ONLY_STIMULUS_01,rectangle,共享互动左区,0,0,50,100,,px,synthetic_top_left,exclusive,1
+SYNTHETIC_ONLY_B_ROI_RIGHT,SYNTHETIC_ONLY_STIMULUS_01,rectangle,共享互动右区,50,0,100,100,,px,synthetic_top_left,exclusive,2

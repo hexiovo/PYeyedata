@@ -1,0 +1,3 @@
+﻿pair_id,member_a,member_b,construction_shift_s,construction_rule,meaning
+SYNTHETIC_ONLY_B_P01__P02,SYNTHETIC_ONLY_B_P01,SYNTHETIC_ONLY_B_P02,0.250000,x_B(t)=base_x(t-0.25s),member_b is generated as a delayed copy; this is not an app-estimated lag
+SYNTHETIC_ONLY_B_P01__P03,SYNTHETIC_ONLY_B_P01,SYNTHETIC_ONLY_B_P03,-0.250000,x_B(t)=base_x(t+0.25s),member_b is generated as an advanced copy; this is not an app-estimated lag

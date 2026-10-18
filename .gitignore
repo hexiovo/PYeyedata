@@ -1,0 +1,10 @@
+# Python bytecode and local validation caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Local environments and root-level build outputs
+.venv/
+/build/
+/dist/

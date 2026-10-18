@@ -1,0 +1,2 @@
+﻿subject_id,session_id,segment_id,segment_name,start_s,end_s,condition,trial,stimulus_id
+SYNTHETIC_ONLY_D_P01,SYNTHETIC_ONLY_D_S01,SYNTHETIC_ONLY_D_FULL_WINDOW,合成阈值演示窗口,0.000000,6.000000,SYNTHETIC_ONLY_D_threshold_case,1,SYNTHETIC_ONLY_STIMULUS_01

@@ -1,0 +1,71 @@
+{
+  "schema_version": "pyeyedata.font-resource/v1",
+  "resource_version": "c03-resources/v2",
+  "upstream": {
+    "repository": "https://github.com/google/fonts",
+    "directory": "ofl/notosanssc",
+    "commit": "a85815a42757630ce188fdad368c2dfc444d4773",
+    "commit_url": "https://github.com/google/fonts/commit/a85815a42757630ce188fdad368c2dfc444d4773",
+    "font_file": "NotoSansSC[wght].ttf",
+    "font_url": "https://raw.githubusercontent.com/google/fonts/a85815a42757630ce188fdad368c2dfc444d4773/ofl/notosanssc/NotoSansSC%5Bwght%5D.ttf",
+    "font_sha256": "a3041811a78c361b1de50f953c805e0244951c21c5bd412f7232ef0d899af0da",
+    "font_bytes": 17772300,
+    "license_file": "OFL.txt",
+    "license_url": "https://raw.githubusercontent.com/google/fonts/a85815a42757630ce188fdad368c2dfc444d4773/ofl/notosanssc/OFL.txt",
+    "license_sha256": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+    "license_bytes": 4388,
+    "license_identifier": "SIL Open Font License 1.1",
+    "reserved_font_name_in_source_license": "Source"
+  },
+  "derivation": {
+    "tool": "fontTools 4.66.1",
+    "python_version": "3.12",
+    "api": "fontTools.varLib.instancer.instantiateVariableFont",
+    "arguments": {
+      "axis_limits": {
+        "wght": 400
+      },
+      "inplace": false,
+      "updateFontNames": false,
+      "static": true
+    },
+    "build_script": "RUN/evidence/c03-font-derive-v1.py",
+    "build_script_sha256": "684efe19c7015c4934e2544305d214b7eb50be4553d8fd208f3d3a415c2f7d9b",
+    "build_command": "python -X utf8 -B c03-font-derive-v1.py <NotoSansSC-wght-variable.ttf> <PYeyedataCJK-Regular.ttf>",
+    "output": "pyeyedata/resources/fonts/PYeyedataCJK-Regular.ttf",
+    "output_bytes": 10595908,
+    "output_sha256": "3880e685b37744c7713cd5657d74cc7d570754c802916af9496f36c42127bd22",
+    "renamed_name_ids": {
+      "1": "PYeyedata CJK",
+      "2": "Regular",
+      "3": "PYeyedata CJK Regular; 2026-10-14",
+      "4": "PYeyedata CJK Regular",
+      "6": "PYeyedataCJK-Regular",
+      "16": "PYeyedata CJK",
+      "17": "Regular",
+      "25": "PYeyedataCJK"
+    },
+    "weight_class": 400,
+    "variation_tables_remaining": []
+  },
+  "glyph_validation": {
+    "best_cmap_glyph_count": 30890,
+    "required_character_count": 717,
+    "required_character_set_sha256": "22d861fcb78f9bd31ddb3e07f377aadac63751631203a78018fee7eae4f7df95",
+    "missing_characters": [],
+    "coverage_basis": "2026-10-15 C03 v3 packaged CSV, Markdown, JSON and license text plus the final guide builder source (covers generated guide strings); generator source and raster screenshot crops excluded.",
+    "guide_source_sha256": "ac50d4b21d417c322790b01908f5809b077750a66922ef8bdfcc7bceb7d438a9"
+  },
+  "current_resource_text_coverage": {
+    "resource_version": "c03-resources/v3",
+    "required_unique_printable_characters": 717,
+    "required_character_set_sha256": "22d861fcb78f9bd31ddb3e07f377aadac63751631203a78018fee7eae4f7df95",
+    "font_sha256": "3880e685b37744c7713cd5657d74cc7d570754c802916af9496f36c42127bd22",
+    "missing_characters": [],
+    "result": "PASS",
+    "basis": "2026-10-15 C03 v3 packaged CSV, Markdown, JSON and license text plus the final guide builder source (covers generated guide strings); generator source and raster screenshot crops excluded.",
+    "guide_source_sha256": "ac50d4b21d417c322790b01908f5809b077750a66922ef8bdfcc7bceb7d438a9"
+  },
+  "use_contract": "Keep resource_path(\"fonts/PYeyedataCJK-Regular.ttf\") context open through font registration and the complete Matplotlib or ReportLab operation, including lazy path reads. Do not cache a path after context exit.",
+  "generated_at": "2026-10-14"
+}

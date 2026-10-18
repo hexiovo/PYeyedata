@@ -1,0 +1,2 @@
+﻿subject_id,session_id,segment_id,segment_name,start_s,end_s,condition,trial,stimulus_id
+SYNTHETIC_ONLY_TEMPLATE_P01,SYNTHETIC_ONLY_TEMPLATE_S01,SYNTHETIC_ONLY_TEMPLATE_SEG01,合成演示区间,0.0,1.0,SYNTHETIC_ONLY_condition,1,SYNTHETIC_ONLY_STIMULUS_01
