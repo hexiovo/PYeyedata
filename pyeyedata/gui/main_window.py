@@ -204,6 +204,7 @@ class MainWindow(QMainWindow):
 
     def _build_file_menu(self) -> None:
         menu = self.menuBar().addMenu("文件")
+        self.file_menu = menu
         self.save_plan_action = QAction("保存分析方案…", self)
         self.save_plan_action.setShortcut("Ctrl+Shift+S")
         self.save_plan_action.setToolTip("保存预处理、指标、方法参数和统计设计，供下次复用；不保存数据或结果。")
@@ -302,6 +303,7 @@ class MainWindow(QMainWindow):
 
     def _build_help_menu(self) -> None:
         help_menu = self.menuBar().addMenu("帮助")
+        self.help_menu = help_menu
         self.help_action = QAction("新手入门与文件示例", self)
         self.help_action.setShortcut("F1")
         self.help_action.triggered.connect(self._open_help)
@@ -309,9 +311,11 @@ class MainWindow(QMainWindow):
         export_action = QAction("导出练习资料与模板…", self)
         export_action.triggered.connect(self._export_learning_pack)
         help_menu.addAction(export_action)
-        pdf_action = QAction("离线使用手册（PDF）", self)
-        pdf_action.triggered.connect(self._open_pdf_guide)
-        help_menu.addAction(pdf_action)
+        self.pdf_guide_action = QAction("全流程图解手册（PDF）", self)
+        self.pdf_guide_action.setObjectName("pdfGuideAction")
+        self.pdf_guide_action.setToolTip("打开离线 PDF：截图标注、逐步操作、文件填写实例和常见问题")
+        self.pdf_guide_action.triggered.connect(self._open_pdf_guide)
+        help_menu.addAction(self.pdf_guide_action)
         help_menu.addSeparator()
         about_action = QAction("关于 PYeyedata", self)
         about_action.triggered.connect(self._show_about)
@@ -377,6 +381,7 @@ class MainWindow(QMainWindow):
         for action in (self.open_action, self.preflight_action, self.run_action, self.cancel_action):
             toolbar.addAction(action)
         toolbar.addSeparator()
+        toolbar.addAction(self.pdf_guide_action)
         toolbar.addAction(self.help_action)
         self.preflight_action.triggered.connect(self.start_preflight)
         self.run_action.triggered.connect(self.start_analysis)
@@ -398,9 +403,19 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget(workspace)
         self.import_page = ImportPage(self.pages)
         self.quality_page = QualityPage(self.pages)
+        self.quality_page_scroll = QScrollArea(self.pages)
+        self.quality_page_scroll.setObjectName("qualityPageScrollArea")
+        self.quality_page_scroll.setWidgetResizable(True)
+        self.quality_page_scroll.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.quality_page_scroll.setWidget(self.quality_page)
         schema = self.bridge.schema()
         self.metrics_page = MetricsPage(schema=schema, parent=self.pages)
         self.group_page = GroupDesignPage(self.pages)
+        self.group_page_scroll = QScrollArea(self.pages)
+        self.group_page_scroll.setObjectName("groupPageScrollArea")
+        self.group_page_scroll.setWidgetResizable(True)
+        self.group_page_scroll.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.group_page_scroll.setWidget(self.group_page)
         self.design_page = DesignPage(schema=schema, parent=self.pages)
         self.results_page = ResultsPage(self.pages)
         self.results_page_scroll = QScrollArea(self.pages)
@@ -431,8 +446,8 @@ class MainWindow(QMainWindow):
         data_layout.addWidget(self.dataset_summary)
         data_layout.addWidget(self.import_page_scroll, 3)
         data_layout.addWidget(self.table_view, 2)
-        for widget in (self.data_page, self.quality_page, self.metrics_page,
-                       self.group_page, self.design_page, self.results_page_scroll):
+        for widget in (self.data_page, self.quality_page_scroll, self.metrics_page,
+                       self.group_page_scroll, self.design_page, self.results_page_scroll):
             self.pages.addWidget(widget)
 
         help_panel = QGroupBox("参数说明", workspace)
@@ -787,12 +802,8 @@ class MainWindow(QMainWindow):
         export_learning_pack_dialog(self)
 
     def _open_pdf_guide(self, _checked=False):
-        from pyeyedata.resource_paths import resource_path
-        try:
-            with resource_path("help/PYeyedata-user-guide-zh.pdf") as path:
-                self._open_cached_bytes(path.name, path.read_bytes())
-        except Exception as exc:
-            QMessageBox.information(self, "离线使用说明", str(exc))
+        from .help_center import open_pdf_guide
+        open_pdf_guide(self)
 
     def set_dataset_revision(self, revision: DatasetRevision, *, preview: pd.DataFrame | None = None) -> None:
         self.session.install_dataset(revision)

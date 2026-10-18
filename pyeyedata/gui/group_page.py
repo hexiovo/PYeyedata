@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QLayout,
     QMessageBox,
     QPushButton,
     QTabWidget,
@@ -168,6 +169,7 @@ class GroupDesignPage(QWidget):
         self._build_parameter_tab()
         self._build_evidence_tab()
         self._build_results_tab()
+        root.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         self.mode_combo.currentIndexChanged.connect(self._on_design_changed)
         self.refresh_button.clicked.connect(self._refresh_design)

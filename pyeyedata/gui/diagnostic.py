@@ -1351,6 +1351,8 @@ def _run_usability_smoke(app: Any, window: Any, workspace: Path, evidence: dict[
     """Fixed beginner workflow, plan transaction and real archive/close behavior."""
     from copy import deepcopy
     from PySide6.QtGui import QCloseEvent
+    from PySide6.QtGui import QDesktopServices
+    from PySide6.QtWidgets import QPushButton, QToolBar, QMessageBox
     from .analysis_plan import read_plan, write_plan
     from .help_center import export_learning_pack, input_instructions, INPUT_ROLES, make_help_dialog
     from pyeyedata.archive_session import prepare_run_archive
@@ -1364,8 +1366,49 @@ def _run_usability_smoke(app: Any, window: Any, workspace: Path, evidence: dict[
     help_dialog.show(); app.processEvents()
     if help_dialog.help_tabs.count() != 3:
         raise RuntimeError("The beginner help chapters are incomplete")
+    opened = []
+    messages = []
+    original_open = QDesktopServices.openUrl
+    original_information = QMessageBox.information
+    try:
+        QDesktopServices.openUrl = staticmethod(lambda url: opened.append(Path(url.toLocalFile())) or True)
+        toolbar = next(bar for bar in window.findChildren(QToolBar) if window.pdf_guide_action in bar.actions())
+        toolbar.widgetForAction(window.pdf_guide_action).click()
+        pdf_button = help_dialog.findChild(QPushButton, "pdfGuideButton")
+        if pdf_button is None:
+            raise RuntimeError("Beginner help lacks the PDF button")
+        pdf_button.click()
+        pdf = read_resource_bytes("help/PYeyedata-user-guide-zh.pdf")
+        if len(opened) != 2 or any(path.read_bytes() != pdf for path in opened):
+            raise RuntimeError("PDF buttons did not open the actual bundled guide")
+        QDesktopServices.openUrl = staticmethod(lambda _url: False)
+        QMessageBox.information = staticmethod(lambda _parent, title, message: messages.append(str(message)))
+        pdf_button.click()
+        if len(messages) != 1 or str(opened[0]) not in messages[0]:
+            raise RuntimeError("Missing-viewer message lacks the cached PDF path")
+    finally:
+        QDesktopServices.openUrl = original_open
+        QMessageBox.information = original_information
     help_dialog.grab().save(str(workspace/"beginner-help.png"))
     help_dialog.close()
+    # Short windows must scroll, never collapse form rows into a few pixels.
+    window.resize(1080, 700)
+    window.step_list.setCurrentRow(1)
+    app.processEvents()
+    q = window.quality_page
+    if q.use_lowpass.height() < q.use_lowpass.minimumSizeHint().height():
+        raise RuntimeError("Processing controls are vertically clipped")
+    if window.quality_page_scroll.widget() is not q:
+        raise RuntimeError("Processing page is not reachable by scrolling")
+    window.step_list.setCurrentRow(3)
+    window.group_page.tabs.setCurrentIndex(2)
+    app.processEvents()
+    g = window.group_page
+    if g.sync_confirmed.height() < g.sync_confirmed.minimumSizeHint().height():
+        raise RuntimeError("Group evidence controls are vertically clipped")
+    if window.group_page_scroll.widget() is not g:
+        raise RuntimeError("Group evidence is not reachable by scrolling")
+    window.step_list.setCurrentRow(0)
     practice_plan = read_plan(pack/"pupil-mean-practice.pyeplan")
     window.apply_analysis_plan(practice_plan)
     saved_plan = workspace/"saved-practice.pyeplan"
@@ -1423,6 +1466,9 @@ def _run_usability_smoke(app: Any, window: Any, workspace: Path, evidence: dict[
     row = metrics.loc[metrics["metric_id"] == "individual.pupil_left.mean"]
     if len(row) != 1 or row.iloc[0]["status"] != "complete" or abs(float(row.iloc[0]["value"])-3.3) > 1e-10:
         raise RuntimeError("Worked example did not produce the documented 3.3 mm metric")
+    chart = window.results_page.individual_tab.chart
+    if chart._unit(metrics, "n_observed") != "count" or chart._unit(metrics, "time_s") != "s" or chart._unit(metrics, "value") != "mm":
+        raise RuntimeError("Result axis units confuse sample counts, time and metric values")
     # A valid plan affects configuration, never imported data or prior records.
     window.apply_analysis_plan(read_plan(saved_plan))
     if window.session.dataset_revision is not revision or window.session.history != (record,):
@@ -1461,6 +1507,10 @@ def _run_usability_smoke(app: Any, window: Any, workspace: Path, evidence: dict[
         "cancel_close_kept_window": True, "committed_archive_marked_original_record": True,
         "reopened_archive_not_unsaved": True, "archive_sha256": _sha256_bytes(archive.read_bytes()),
         "pdf_sha256": _sha256_bytes(read_resource_bytes("help/PYeyedata-user-guide-zh.pdf")),
+        "pdf_toolbar_and_help_buttons_open_bundled_bytes": True,
+        "pdf_viewer_failure_reports_cached_path": True,
+        "short_window_processing_and_group_controls_visible_and_scrollable": True,
+        "result_axes_distinguish_count_seconds_and_metric_units": True,
     }
 
 

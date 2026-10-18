@@ -230,12 +230,6 @@ class ResultChartPanel(QWidget):
         return str(value)
 
     def _unit(self, frame: pd.DataFrame, column: str) -> str | None:
-        if "unit" in frame:
-            units = _unique_values(frame, "unit")
-            if len(units) > 1:
-                raise ValueError("所选数据包含多个单位；请先筛选为单一单位。")
-            if units:
-                return units[0]
         known = {
             "time_s": "s", "start_s": "s", "end_s": "s", "duration_s": "s",
             "lag_s": "s", "frequency_hz": "Hz", "fs_hz": "Hz",
@@ -245,13 +239,22 @@ class ResultChartPanel(QWidget):
             "proportion": "proportion", "dwell_s": "s", "n_members": "participants",
         }
         if column in known:
-            return known[column]
+            if known[column] is not None:
+                return known[column]
+        if column.startswith("n_") or column == "_row_index":
+            return "count"
         for suffix, unit in (
             ("_frequency_hz", "Hz"), ("_hz", "Hz"), ("_deg_s2", "deg/s²"),
             ("_deg_s", "deg/s"), ("_deg", "deg"), ("_s", "s"),
         ):
             if column.endswith(suffix):
                 return unit
+        if "unit" in frame:
+            units = _unique_values(frame, "unit")
+            if len(units) > 1:
+                raise ValueError("所选数据包含多个单位；请先筛选为单一单位。")
+            if units:
+                return units[0]
         return None
 
     def _axis_label(self, frame: pd.DataFrame, column: str) -> str:

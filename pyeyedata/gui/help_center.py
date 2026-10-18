@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import os
+import hashlib
 from pathlib import Path
 import re
 import tempfile
 
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
                               QMessageBox, QPushButton, QTabWidget, QTextBrowser, QVBoxLayout)
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 
 from pyeyedata.resource_paths import read_resource_bytes, read_resource_text
 
@@ -17,6 +20,20 @@ INPUT_ROLES = ("signals", "segments", "aois", "performance", "external_events",
 GUIDES = (("第一次使用", "help/quick-start-zh.md"),
           ("文件怎么填", "help/input-files-zh.md"),
           ("方案、档案与退出", "help/plans-and-archives-zh.md"))
+
+
+def open_pdf_guide(parent=None) -> None:
+    """Open the bundled PDF offline; retain a usable path if no viewer is set."""
+    from pyeyedata_bootstrap import user_directory
+    try:
+        content = read_resource_bytes("help/PYeyedata-user-guide-zh.pdf")
+        name = hashlib.sha256(content).hexdigest()[:16] + "-PYeyedata-user-guide-zh.pdf"
+        destination = user_directory("cache", "viewed-artifacts") / name
+        destination.write_bytes(content)
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(destination))):
+            raise RuntimeError("系统未能打开 PDF。可将下面的文件用 Edge 等 PDF 阅读器打开：\n" + str(destination))
+    except Exception as exc:
+        QMessageBox.information(parent, "全流程图解手册", str(exc))
 
 
 def input_instructions(role: str) -> str:
@@ -105,6 +122,10 @@ def make_help_dialog(parent=None, *, role: str | None = None) -> QDialog:
         tabs.addTab(viewer, title)
     layout.addWidget(tabs, 1)
     row = QHBoxLayout()
+    pdf = QPushButton("全流程图解手册（PDF）", dialog)
+    pdf.setObjectName("pdfGuideButton")
+    pdf.clicked.connect(lambda: open_pdf_guide(dialog))
+    row.addWidget(pdf)
     export = QPushButton("导出练习资料与空白模板…", dialog)
     export.clicked.connect(lambda: export_learning_pack_dialog(dialog))
     row.addWidget(export)

@@ -1,0 +1,588 @@
+{
+  "application_version": "0.9.3",
+  "synthetic_only": true,
+  "capture_method": "actual Qt QWidget.grab; no OS mouse control",
+  "images": {
+    "01-toolbar": {
+      "file": "screenshots/01-toolbar.png",
+      "width": 1580,
+      "height": 92,
+      "marks": [
+        [
+          888,
+          12,
+          350,
+          68
+        ],
+        [
+          1254,
+          12,
+          300,
+          68
+        ],
+        [
+          198,
+          12,
+          222,
+          68
+        ],
+        [
+          436,
+          12,
+          170,
+          68
+        ]
+      ],
+      "sha256": "094cc23ae50a1cc53c2e5991168600949e5901cebbf62af395ddaed10f5263f2"
+    },
+    "01-navigation": {
+      "file": "screenshots/01-navigation.png",
+      "width": 350,
+      "height": 634,
+      "marks": [
+        [
+          0,
+          0,
+          346,
+          68
+        ],
+        [
+          0,
+          408,
+          346,
+          68
+        ]
+      ],
+      "sha256": "fd1c9c54b9055f373ae861cb301be27d62a35a84f2526450c8eeca36b753f4c6"
+    },
+    "02-help": {
+      "file": "screenshots/02-help.png",
+      "width": 1840,
+      "height": 1400,
+      "marks": [
+        [
+          362,
+          1316,
+          352,
+          62
+        ],
+        [
+          22,
+          1316,
+          328,
+          62
+        ]
+      ],
+      "sha256": "e7726d86dcf79f69e7e5cf98bc8caa07beb94bf8c3b9c019d6209367e6a4a68d"
+    },
+    "03-file": {
+      "file": "screenshots/03-file.png",
+      "width": 1526,
+      "height": 322,
+      "marks": [
+        [
+          242,
+          84,
+          466,
+          40
+        ],
+        [
+          850,
+          74,
+          210,
+          62
+        ],
+        [
+          1232,
+          74,
+          148,
+          62
+        ]
+      ],
+      "sha256": "820aada80e695b5c2719d5c4efb40f8b79cfc7d8a995d4bd16bfc859b3597938"
+    },
+    "04-mapping": {
+      "file": "screenshots/04-mapping.png",
+      "width": 1454,
+      "height": 870,
+      "marks": [
+        [
+          442,
+          62,
+          348,
+          58
+        ],
+        [
+          442,
+          782,
+          348,
+          58
+        ],
+        [
+          1152,
+          782,
+          198,
+          58
+        ]
+      ],
+      "sha256": "70b41414101d6dfa2dfd275308f4787c8a17eb25a47b1ca8434ceb2b11f73f53"
+    },
+    "04-validity": {
+      "file": "screenshots/04-validity.png",
+      "width": 1454,
+      "height": 870,
+      "marks": [
+        [
+          442,
+          722,
+          348,
+          58
+        ]
+      ],
+      "sha256": "bce3394156fcdda25487ec74736ae320c8b8c32ab4fda8013c01bde4aa8b75a5"
+    },
+    "05-time": {
+      "file": "screenshots/05-time.png",
+      "width": 1526,
+      "height": 350,
+      "marks": [
+        [
+          270,
+          74,
+          1218,
+          42
+        ],
+        [
+          270,
+          128,
+          1218,
+          46
+        ]
+      ],
+      "sha256": "555db714c8880d39ce6f2322d65048ffff4a241dd334dec57c12263d70f356d0"
+    },
+    "05-pupil-unit": {
+      "file": "screenshots/05-pupil-unit.png",
+      "width": 1526,
+      "height": 360,
+      "marks": [
+        [
+          310,
+          230,
+          1178,
+          40
+        ]
+      ],
+      "sha256": "d8a1e818ac5ea0d32a1173847b6cad6658eee081f3a8cf0cec84cf86d212cfb5"
+    },
+    "06-import": {
+      "file": "screenshots/06-import.png",
+      "width": 1570,
+      "height": 180,
+      "marks": [
+        [
+          1352,
+          100,
+          200,
+          62
+        ]
+      ],
+      "sha256": "6baf1bb4f206823d8acf49853bdbd23256861af6a481bef83f69d91d840f8301"
+    },
+    "07-processing": {
+      "file": "screenshots/07-processing.png",
+      "width": 1570,
+      "height": 1090,
+      "marks": [
+        [
+          20,
+          434,
+          260,
+          46
+        ],
+        [
+          20,
+          602,
+          206,
+          46
+        ],
+        [
+          20,
+          770,
+          258,
+          46
+        ]
+      ],
+      "sha256": "c3186a41666d9094837764301033965d9849b2f5b4ff09ce6b5ee4dae6d3717d"
+    },
+    "09-plan-menu": {
+      "file": "screenshots/09-plan-menu.png",
+      "width": 556,
+      "height": 92,
+      "marks": [
+        [
+          0,
+          0,
+          556,
+          46
+        ],
+        [
+          0,
+          46,
+          556,
+          46
+        ]
+      ],
+      "sha256": "366e6e51ac80198df60d3d183e472d0bd7bf8f21765bfcf3141e6906b61a303b"
+    },
+    "08-metric": {
+      "file": "screenshots/08-metric.png",
+      "width": 1638,
+      "height": 634,
+      "marks": [
+        [
+          290,
+          26,
+          180,
+          46
+        ],
+        [
+          40,
+          242,
+          626,
+          40
+        ],
+        [
+          40,
+          298,
+          1558,
+          140
+        ]
+      ],
+      "sha256": "57581098fe58cd6a275f6aeaaf4a7a705daa4a65232bf7b36a72639f46cc279b"
+    },
+    "10-quality": {
+      "file": "screenshots/10-quality.png",
+      "width": 1570,
+      "height": 972,
+      "marks": [
+        [
+          0,
+          0,
+          958,
+          56
+        ]
+      ],
+      "sha256": "228a320ceebd8ef083de7a894659ba209aa2072f3fbe3442560e4da9515a4649"
+    },
+    "11-results": {
+      "file": "screenshots/11-results.png",
+      "width": 1606,
+      "height": 430,
+      "marks": [
+        [
+          188,
+          218,
+          1186,
+          42
+        ],
+        [
+          20,
+          282,
+          200,
+          62
+        ],
+        [
+          444,
+          282,
+          348,
+          62
+        ],
+        [
+          232,
+          282,
+          200,
+          62
+        ]
+      ],
+      "sha256": "e46db12c5f93038132c723c32fa3c629a47bdd1c5ad66740f7f17f9a4faf5c05"
+    },
+    "12-table": {
+      "file": "screenshots/12-table.png",
+      "width": 1558,
+      "height": 600,
+      "marks": [
+        [
+          16,
+          26,
+          420,
+          42
+        ],
+        [
+          16,
+          210,
+          1526,
+          388
+        ],
+        [
+          572,
+          90,
+          332,
+          62
+        ],
+        [
+          916,
+          90,
+          336,
+          62
+        ]
+      ],
+      "sha256": "7817b4df863004c50d259261f34c3e68039ea153d61eba636fa3ac7cf0e542dc"
+    },
+    "12-chart": {
+      "file": "screenshots/12-chart.png",
+      "width": 1526,
+      "height": 1018,
+      "marks": [
+        [
+          30,
+          10,
+          370,
+          42
+        ],
+        [
+          440,
+          10,
+          370,
+          42
+        ],
+        [
+          1430,
+          0,
+          96,
+          62
+        ]
+      ],
+      "sha256": "7d01f784d0fcb3817c7f2d27d3fec3ce620e4621bec891d8cba74716182fa3b8"
+    },
+    "13-export": {
+      "file": "screenshots/13-export.png",
+      "width": 1400,
+      "height": 206,
+      "marks": [
+        [
+          22,
+          68,
+          1356,
+          42
+        ]
+      ],
+      "sha256": "9da67c308d23efe69e6f455a07d347e65ddd121abe18b442bf5bf198eadc0898"
+    },
+    "14-archive": {
+      "file": "screenshots/14-archive.png",
+      "width": 1400,
+      "height": 206,
+      "marks": [
+        [
+          22,
+          68,
+          1356,
+          42
+        ]
+      ],
+      "sha256": "33bf8388c95f777bc9a8f7bf01e46004fb09879806492369936cf5d2ab280f3c"
+    },
+    "15-exit": {
+      "file": "screenshots/15-exit.png",
+      "width": 928,
+      "height": 254,
+      "marks": [
+        [
+          706,
+          170,
+          200,
+          62
+        ],
+        [
+          204,
+          170,
+          226,
+          62
+        ],
+        [
+          442,
+          170,
+          252,
+          62
+        ]
+      ],
+      "sha256": "4cdeb2f5a1c8a33f8aa397436e7c054d21572d2d4d6a1f027710c6f8476fc789"
+    },
+    "16-group": {
+      "file": "screenshots/16-group.png",
+      "width": 1674,
+      "height": 1464,
+      "marks": [
+        [
+          134,
+          28,
+          196,
+          42
+        ],
+        [
+          40,
+          346,
+          1594,
+          568
+        ],
+        [
+          18,
+          172,
+          818,
+          56
+        ]
+      ],
+      "sha256": "51455780c981af85b5a6555a4b5f9dd2a337e1dee835ead5c93773eb85f23428"
+    },
+    "17-clock": {
+      "file": "screenshots/17-clock.png",
+      "width": 1594,
+      "height": 486,
+      "marks": [
+        [
+          20,
+          56,
+          1554,
+          46
+        ],
+        [
+          20,
+          166,
+          1554,
+          46
+        ]
+      ],
+      "sha256": "d2d95a41b20e4c38263d54b94b9f214bb4a7995b1df4c84e489209652af2fded"
+    },
+    "17-space": {
+      "file": "screenshots/17-space.png",
+      "width": 1594,
+      "height": 550,
+      "marks": [
+        [
+          20,
+          160,
+          1554,
+          46
+        ],
+        [
+          20,
+          322,
+          1554,
+          46
+        ],
+        [
+          20,
+          432,
+          1554,
+          46
+        ]
+      ],
+      "sha256": "ce4b22bd38a6c9a84aaa66b2f354620e2e324e4a1c30d5775847a42360885f7d"
+    },
+    "18-design": {
+      "file": "screenshots/18-design.png",
+      "width": 1490,
+      "height": 530,
+      "marks": [
+        [
+          398,
+          56,
+          1072,
+          42
+        ],
+        [
+          398,
+          164,
+          1072,
+          42
+        ]
+      ],
+      "sha256": "e686ee6be6a3c2536695c054ceb220de5319b113e458022fe6a9ef3c6738426a"
+    },
+    "18-independence": {
+      "file": "screenshots/18-independence.png",
+      "width": 1490,
+      "height": 132,
+      "marks": [
+        [
+          398,
+          20,
+          1072,
+          34
+        ]
+      ],
+      "sha256": "ca66628f68d13cc773b238ace03468bb8d132bd157a7950ccc1cb9c1bd0ad062"
+    },
+    "19-advanced": {
+      "file": "screenshots/19-advanced.png",
+      "width": 1638,
+      "height": 634,
+      "marks": [
+        [
+          290,
+          26,
+          180,
+          46
+        ],
+        [
+          1328,
+          240,
+          270,
+          46
+        ],
+        [
+          40,
+          298,
+          1558,
+          140
+        ]
+      ],
+      "sha256": "e8e6b7bdc0b49502714cab80e9e7203c092399addbcb1a2c9aa2daf4509bc1d0"
+    },
+    "20-context": {
+      "file": "screenshots/20-context.png",
+      "width": 1526,
+      "height": 860,
+      "marks": [
+        [
+          18,
+          98,
+          1388,
+          56
+        ],
+        [
+          802,
+          274,
+          210,
+          62
+        ],
+        [
+          1024,
+          274,
+          174,
+          62
+        ]
+      ],
+      "sha256": "910d3abbb9c9b9900ed3db0653b1dc40f933970297993a45279146a3bd2ce296"
+    }
+  },
+  "practice_result": {
+    "rows": 201,
+    "metric_id": "individual.pupil_left.mean",
+    "value": 3.3000000000000003,
+    "status": "complete",
+    "overall_status": "partial"
+  }
+}

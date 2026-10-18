@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -242,6 +243,9 @@ class QualityPage(QWidget):
         layout.addLayout(status_row)
         layout.addWidget(self.controls_box)
         layout.addWidget(self.tabs, 1)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        self.controls_box.setMinimumHeight(self.controls_box.minimumSizeHint().height())
+        self.tabs.setMinimumHeight(360)
         self._emit_configuration()
 
     def _build_controls(self, defaults: ProcessingConfig) -> None:
