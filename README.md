@@ -2,6 +2,16 @@
 
 PYeyedata is a Windows desktop application for eye-tracking data analysis. The supported operating systems are Windows 10 and Windows 11, x64.
 
+## 下载即用 / 新主机开发
+
+**[下载最新 Release](https://github.com/hexiovo/PYeyedata/releases/latest)**：选择 `windows-x64.zip`，解压后运行 `PYeyedata.exe`；不需要安装 Python。也提供独立 EXE、源码包、校验和与构建信息。
+
+开发主机安装 Windows x64 Python 3.12（推荐 3.12.10）后，运行 `setup.cmd` 准备环境，`start.cmd` 启动，提交修改后用 `release.cmd` 检查并打包。
+
+- [完整部署与发布说明](docs/DEPLOYMENT.md)
+- [Codex 项目现状与接手指南](CODEX_HANDOFF.md)（另一台主机先读此文及根目录 AGENTS.md）
+- [本次更新](docs/RELEASE_NOTES.md)
+
 ## 第一次使用
 
 运行单文件 `PYeyedata.exe` 后，按 **F1** 或点 **帮助 → 新手入门与文件示例**。

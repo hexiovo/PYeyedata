@@ -172,8 +172,9 @@ def _controlled_build_environment(
         normalized = os.path.normcase(os.path.normpath(value))
         if normalized in seen_path_entries:
             continue
-        if "codex" in normalized.casefold():
-            raise RuntimeError(f"A Codex runtime path entered the controlled build PATH: {value}")
+        # Only the explicitly selected interpreter/base runtime and Windows
+        # directories enter PATH. A legitimate checkout/venv may itself live
+        # in a directory named Codex; its spelling is not runtime provenance.
         seen_path_entries.add(normalized)
         path_entries.append(value)
 

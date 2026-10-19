@@ -1,6 +1,6 @@
 # Microsoft runtime and Windows dependency research
 
-This notice records the Microsoft runtime files observed in the post-System32-filter D02 Analysis inventory and the official terms reviewed for them. It is a source and provenance record, not a legal opinion or a grant of redistribution rights. The current release scope is local application use and publication of source on GitHub; external binary redistribution is not part of this request.
+This notice records the Microsoft runtime files observed in the post-System32-filter D02 Analysis inventory and the official terms reviewed for them. It is a source and provenance record, not a legal opinion or a grant of redistribution rights. Starting with 0.9.5 the release tooling packages the Windows executable for download and reconciles its actual native component paths and hashes with the maintained source/notice map. The source links and full license terms remain applicable to those components.
 
 ## Inventory observation
 
@@ -28,4 +28,4 @@ The offline text extracts below were retrieved on 2026-10-16 and are listed with
 
 The Visual Studio and Windows SDK materials condition redistribution on applicable licensed products, listed files, unmodified form, and additional terms. They explain possible redistribution routes; they do not establish the licensing provenance of these observed DLL copies. The 2026 V14 and Visual Studio materials are references to their stated terms and do not mean a 2026 SDK or Visual Studio binary is included in this application.
 
-The source manifest and prior post-filter inventory evidence retain the exact observed file hashes and source-group mappings. Final D02 release evidence must reconcile those observations against the frozen executable's exact inventory. Any future external binary release requires a separate check of the exact binary provenance and applicable Microsoft license prerequisites. No general or unrestricted binary redistribution right is claimed here.
+The source manifest retains the exact observed file hashes and source-group mappings. The release builder checks the actual native Analysis inventory and indexed license materials before packaging; a changed native file requires an updated source/notice map. Release assets include that reconciled map as native-components.json. Applicable Microsoft license prerequisites remain governed by the included terms; this inventory does not claim a general or unrestricted binary redistribution right.

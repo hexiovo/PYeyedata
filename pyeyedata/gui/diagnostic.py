@@ -1550,6 +1550,9 @@ def run_diagnostic(config_path: str) -> int:
                         "cwd": str(Path.cwd()),
                         "bundle_root": str(getattr(sys, "_MEIPASS", "")) or None},
             "gui": {"window_title": window.windowTitle(), "visible_after_show": window.isVisible(),
+                    "application_icon_available": not app.windowIcon().isNull(),
+                    "window_icon_available": not window.windowIcon().isNull(),
+                    "icon_sizes": [size.width() for size in app.windowIcon().availableSizes()],
                     "task_manager": type(window.task_manager).__name__,
                     "operation_manager": type(window.operation_manager).__name__},
         })

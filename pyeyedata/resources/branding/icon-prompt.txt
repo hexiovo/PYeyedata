@@ -1,0 +1,9 @@
+Generated with the built-in image_gen tool on 2026-10-18.
+PNG is the original master; ICO contains 16, 20, 24, 32, 40, 48, 64, 96, 128 and 256 px exports with original transparency.
+
+Use case: logo-brand
+Asset type: final Windows desktop application icon for PYeyedata, a professional eye-tracking scientific analysis app.
+Primary request: create a sophisticated premium icon with an unmistakable abstract eye and optical iris, bold simple silhouette and exceptional clarity at 24–48 px.
+Style: precision-crafted minimal dimensional emblem, restrained satin metallic edges with a luminous turquoise/cyan iris and small champagne-gold accent, on a deep midnight navy rounded-square tile. Elegant scientific instrument aesthetic, beautifully balanced, confident and timeless. One coherent eye symbol, thick clean curves, central circular lens, gentle controlled highlights, no small technical detail.
+Composition: square 1024x1024, single front-facing centered icon, tile fills about 94% of the canvas with modest rounded corners, eye fills about 78% of tile width. Transparent outside the tile; preserve a real alpha channel. Crisp clean edge, minimal padding, no surrounding scenery.
+Constraints: no letters, no text, no watermark, no mockup, no multiple options, no extra objects, no busy decoration, no photorealistic human eye.

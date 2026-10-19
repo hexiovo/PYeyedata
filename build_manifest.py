@@ -135,6 +135,11 @@ def create_build_manifest(project_root: Path) -> dict[str, Any]:
             "pyeyedata_launcher.py", "pyeyedata_bootstrap.py", "build_windows.py",
             "build_windows.spec", "build_manifest.py", "build_windows_version_resource.py",
             "requirements.txt", "version.md",
+            "setup.cmd", "start.cmd", "release.cmd", "tools/manage.ps1",
+            "tools/run_checks.py", "tools/release_windows.py",
+            "README.md", "AGENTS.md", "CODEX_HANDOFF.md",
+            "docs/DEPLOYMENT.md", "docs/RELEASE_NOTES.md",
+            ".github/workflows/release.yml",
         )
     )
     missing = [path for path in source_files if not path.is_file()]

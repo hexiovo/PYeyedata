@@ -1,6 +1,6 @@
 # Qt/PySide/Shiboken source and rebuild information
 
-PYeyedata 0.9.0 uses the LGPLv3 option for the Qt, PySide and Shiboken components selected for its Windows build, including Qt Base, QtSvg and Qt Image Formats. The full LGPLv3 and GPLv3 texts accompany this document. These instructions preserve the reverse-engineering/debugging permission needed to diagnose modifications to the covered LGPL components; they do not license PYeyedata source code under LGPL or GPL.
+PYeyedata uses the LGPLv3 option for the Qt, PySide and Shiboken components selected for its Windows build, including Qt Base, QtSvg and Qt Image Formats. The full LGPLv3 and GPLv3 texts accompany this document. These instructions preserve the reverse-engineering/debugging permission needed to diagnose modifications to the covered LGPL components; they do not license PYeyedata source code under LGPL or GPL.
 
 ## Matching upstream source archives
 
@@ -14,7 +14,7 @@ The source archive references below are for release 6.8.3. Before using an archi
 
 The matching Qt 6.8.3 attribution JSON and applicable license/notice texts for Qt Base and Qt Image Formats are provided under `qt/6.8.3/`. Their exact upstream paths, source URLs, digests and module mappings are recorded in `source-manifest.json`. These materials cover the bundled Qt Base dependencies identified by Qt's own attribution records (double-conversion, FreeType and its full FTL, BDF, PCF and zlib notices, HarfBuzz, libjpeg, libpng, PCRE2/SLJIT and zlib) and the Qt Image Formats libtiff/libwebp notices, including the WebP patent notice. The official JSON attribution records are hash-checked but are not rendered as license text by the offline viewer.
 
-The final native-component manifest generated in D02 is authoritative for the libraries actually shipped. It must identify each DLL/plugin, package version, applicable license, upstream source module/archive, source digest and binary digest. The current 279-entry source map is preparation evidence; D02 must reconcile it against the final Analysis, including QtSvg and Qt Image Formats components. If a selected component does not match the source references above, its exact corresponding upstream source and notice must be added before release.
+The release builder reconciles every actual native Analysis path and binary hash against the maintained 281-entry source map, including QtSvg and Qt Image Formats, and verifies the indexed notice hashes before packaging. The resulting native-components.json accompanies the portable release; source-manifest.json provides package versions, source archive references and notice mappings. If a selected component changes, its exact corresponding source and notice map must be updated before the release check can pass.
 
 ## Replacing Qt/PySide/Shiboken components and rebuilding
 

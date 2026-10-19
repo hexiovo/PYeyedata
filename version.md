@@ -1,3 +1,21 @@
+### 2026-10-19 — 0.9.5: portable deployment and reproducible release entry points
+
+- Added Windows setup/start/release commands using a local Python 3.12 x64 venv and the existing exact dependency pins. No original-machine paths or external audit directories are required.
+- Added a fixed source/frozen diagnostic runner and a clean-Git release builder. Final packaging verifies PE identity, embedded input/resource hashes, all three synthetic/reliability/usability scenarios in both modes, ZIP integrity and SHA-256. Assets include an EXE, portable ZIP with notices, exact-commit source ZIP, checksums and build information.
+- Reconciled all 281 native component names/hashes and 78 displayable indexed license materials against the maintained notices before packaging; downloadable assets include native-components.json. Removed a build-path substring heuristic that rejected legitimate Python environments inside folders named Codex; the controlled PATH still contains only the selected interpreter/base runtime and Windows directories.
+- Pre-build verification passed all three source diagnostics, the Python 3.12.0 rejection, dirty-source release rejection and script syntax checks. A fresh local .venv setup is exercised separately; final source/frozen results are recorded with the release assets.
+- Added manual GitHub Actions release publishing from an existing version tag; it uses the same build/check/package scripts. Remote runner execution remains unverified until that workflow is actually run.
+- Added root AGENTS.md, CODEX_HANDOFF.md, deployment instructions and release notes. Included these deployment inputs in the embedded build identity, and retained the existing 0.9.4 branding changes. Application/resource/license identity is 0.9.5; guide content remains 0.9.3. Scientific algorithms, dependency pins and defaults are unchanged.
+- Release acceptance and exact commit/EXE hashes are recorded in the generated release-info.json and checksum assets after this document is frozen. Synthetic offscreen checks do not establish real-device, clean-host or native multi-monitor/DPI validation.
+
+### 2026-10-18 — 0.9.4: application and Windows taskbar branding
+
+- Added an original midnight-blue eye/lens icon with cyan and champagne-metal accents, generated with the built-in image tool. Kept the transparent PNG master and generation prompt under `pyeyedata/resources/branding`; the Windows ICO contains 16/20/24/32/40/48/64/96/128/256 px images.
+- Set the application-wide Qt icon so the main window and dialogs inherit the same branding. Set the stable, version-independent Windows AppUserModelID `PYeyedata.Desktop` before QApplication construction for source and frozen launches. PyInstaller now embeds the same ICO into the executable; branding assets are included in the existing resource/hash manifest.
+- Native source verification passed all ten ICO sizes, inherited main-window/dialog icons, real Win32 small/large window icon handles, and a queried process AppUserModelID. Small-size visual review covered 16–128 px. Evidence: `E:/CodexData/tmp/PYeyedata-v094-icon-20261018/source-icon-check.json`.
+- Release build, executable icon/resource verification, frozen native startup and delivery receipts are recorded outside hashed inputs under `E:/CodexData/tmp/PYeyedata-v094-icon-20261018`. Delivery target is `F:/桌面/程序/APP/PYeyedata.exe`. This branding update does not change scientific processing or the 0.9.3 guide edition.
+- Synchronized application identity to 0.9.4 in the resource index and license source manifest, refreshed its indexed hash, and retained guide edition 0.9.3.
+
 ### 2026-10-18 — 0.9.3: illustrated full-workflow PDF and visible guide controls
 
 - Added a visible “全流程图解手册（PDF）” toolbar action and a matching F1-help button, sharing one offline opener for the embedded guide. A missing/default-viewer failure reports the actual cached PDF path; the practice export also includes the same guide bytes.

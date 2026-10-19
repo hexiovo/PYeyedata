@@ -1,0 +1,65 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish (for example v0.9.6)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+          architecture: x64
+          cache: pip
+      - name: Verify tag and release identity
+        shell: pwsh
+        run: |
+          $version = python -c "import runpy; print(runpy.run_path('pyeyedata/app_info.py')['APP_VERSION'])"
+          if ($LASTEXITCODE -ne 0 -or $env:RELEASE_TAG -cne "v$version") { throw 'Tag must match APP_VERSION.' }
+          git show-ref --verify "refs/tags/$env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'An existing version tag is required.' }
+      - name: Prepare pinned environment
+        shell: pwsh
+        run: ./tools/manage.ps1 -Action Setup -Python (Get-Command python).Source
+      - name: Build, check source and frozen application, package
+        shell: pwsh
+        run: ./tools/manage.ps1 -Action Release -Output "$env:RUNNER_TEMP/PYeyedata-release"
+      - name: Keep build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: |
+            ${{ runner.temp }}/PYeyedata-release/evidence/
+            ${{ runner.temp }}/PYeyedata-release/logs/
+            ${{ runner.temp }}/PYeyedata-release/source-checks/
+            ${{ runner.temp }}/PYeyedata-release/frozen-checks/
+      - name: Publish GitHub Release
+        shell: pwsh
+        run: |
+          $assets = Get-ChildItem -File "$env:RUNNER_TEMP/PYeyedata-release/assets" | ForEach-Object FullName
+          gh release create $env:RELEASE_TAG @assets --verify-tag --title "PYeyedata $env:RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed; inspect existing release and workflow artifacts.' }

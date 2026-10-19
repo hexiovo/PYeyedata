@@ -248,5 +248,6 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version=str(VERSION_RESOURCE_PATH),
+    icon=str(resource_root / "branding" / "pyeyedata.ico"),
 )
 
