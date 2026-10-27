@@ -95,6 +95,16 @@ _PARAMETER_LABELS = {
     "enable_experimental": "启用研究/实验方法",
     "max_gap_s": "最大有效间隔",
     "alignment_tolerance_s": "时间对齐容差",
+    "reference_event_s": "首次注视参考时刻（秒）",
+    "fixation_observation_confirmed": "注视分类覆盖观察窗已确认",
+    "reading_order_confirmed": "AOI 阅读推进顺序已确认",
+    "reading_direction": "阅读方向",
+    "reading_scope_id": "阅读范围 ID",
+    "event_source_confirmed": "外部事件来源已确认",
+    "event_source": "外部事件来源",
+    "event_algorithm_version": "外部事件分类版本",
+    "event_source_types": "来源覆盖事件类型（JSON）",
+    "blink_source_confirmed": "眨眼事件来源已确认",
 }
 
 
@@ -187,12 +197,18 @@ class MetricReasonDialog(QDialog):
         controls = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
         self.edit_button = controls.addButton("定位修改入口", QDialogButtonBox.ButtonRole.ActionRole)
         self.edit_button.setAccessibleName(f"定位 {metric_id} 的条件修改入口")
-        self.edit_button.clicked.connect(lambda: self.edit_requested.emit({
+        edit_payload = {
             "module": module,
             "metric_id": metric_id,
             "entry": dict(entry),
             "availability_rows": [dict(row) for row in availability_rows],
-        }))
+        }
+
+        def request_edit(_checked: bool = False) -> None:
+            self.edit_requested.emit(edit_payload)
+            self.accept()
+
+        self.edit_button.clicked.connect(request_edit)
         controls.rejected.connect(self.reject)
         layout.addWidget(controls)
 
@@ -320,6 +336,40 @@ class MetricCatalogueWidget(QWidget):
         self._catalogue = catalogue_for_module(self._schema, module)
         self._refresh_categories()
         self._rebuild_tree()
+
+    def focus_metric(self, metric_id: str) -> bool:
+        """Select an exact catalogue row without changing its checked state."""
+        if not isinstance(metric_id, str) or not metric_id:
+            return False
+        self.search.clear()
+        for combo in (self.category_filter, self.state_filter):
+            index = combo.findData("all")
+            if index >= 0:
+                combo.setCurrentIndex(index)
+
+        def find(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+            if item.data(0, Qt.ItemDataRole.UserRole) == metric_id:
+                return item
+            for child_index in range(item.childCount()):
+                result = find(item.child(child_index))
+                if result is not None:
+                    return result
+            return None
+
+        match = None
+        for index in range(self.tree.topLevelItemCount()):
+            match = find(self.tree.topLevelItem(index))
+            if match is not None:
+                break
+        if match is None:
+            return False
+        ancestor = match.parent()
+        while ancestor is not None:
+            ancestor.setExpanded(True)
+            ancestor = ancestor.parent()
+        self.tree.setCurrentItem(match)
+        self.tree.scrollToItem(match)
+        return True
 
     def set_schema(self, schema: Mapping[str, Any]) -> None:
         self._schema = dict(schema)
@@ -1237,6 +1287,44 @@ class MetricsPage(QWidget):
         index = self.module_combo.findData(module)
         if index >= 0:
             self.module_combo.setCurrentIndex(index)
+
+    def focus_requirement(self, module: str, field: str) -> bool:
+        """Focus one existing typed parameter without changing its value."""
+        if module not in MODULES or not isinstance(field, str) or not field:
+            return False
+        form = self._forms.get(module)
+        if form is None or field not in form.editors:
+            return False
+        self.set_module(module)
+        self.tabs.setCurrentWidget(self.parameter_tabs)
+        index = MODULES.index(module)
+        if index < self.parameter_tabs.count():
+            self.parameter_tabs.setCurrentIndex(index)
+        form.focus_field(field)
+        return True
+
+    def focus_metric(self, metric_id: str, module: str | None = None) -> bool:
+        """Show an exact catalogue metric when its owning module is unambiguous."""
+        if not isinstance(metric_id, str) or not metric_id:
+            return False
+        owner = module if module in MODULES else self.module_for_metric(metric_id)
+        candidates = [owner] if owner in MODULES else []
+        if len(candidates) != 1 or candidates[0] not in MODULES:
+            return False
+        self.set_module(candidates[0])
+        self.tabs.setCurrentWidget(self.catalogue)
+        return self.catalogue.focus_metric(metric_id)
+
+    def module_for_metric(self, metric_id: str) -> str | None:
+        """Return a module only when the live schema gives the metric one owner."""
+        if not isinstance(metric_id, str) or not metric_id:
+            return None
+        candidates = [
+            name for name in MODULES
+            if any(str(entry.get("metric_id")) == metric_id
+                   for entry in catalogue_for_module(self._schema, name))
+        ]
+        return candidates[0] if len(candidates) == 1 else None
 
     def _on_experimental_changed(self, module: str, enabled: bool) -> None:
         self._allow_experimental[module] = bool(enabled)

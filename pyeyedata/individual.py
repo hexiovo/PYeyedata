@@ -53,7 +53,7 @@ from .methods.scanpath import (
     scanmatch_cell_tokens,
 )
 
-ALGORITHM_VERSION = "individual-0.2.0"
+ALGORITHM_VERSION = "individual-0.3.0"
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 _ID_COLUMNS = ("subject_id", "session_id")
 _MULTIMATCH_FAMILY = "individual.scanpath.multimatch"
@@ -199,6 +199,11 @@ INDIVIDUAL_CATALOGUE: tuple[dict[str, Any], ...] = (
     _spec("individual.scanpath.scanmatch.raw_score", "ScanMatch Needleman–Wunsch 原始分数", "scanpath", "substitution_score", ("gaze_x", "gaze_y", "gaze_valid", "time_s"), ("scanmatch_grid", "scanmatch_reference", "coordinate_unit", "coordinate_frame"), "R2", "global-needleman-wunsch-v1", implemented=True, validated=True, validation_status="targeted_software_validation", evidence_ref="a02-boundary-recheck-20261013.json#scanmatch_boundaries", note="原始全局比对分数；尺度取决于记录的替代矩阵和间隙罚分。"),
     _spec("individual.scanpath.scanmatch.normalized_similarity", "ScanMatch 参考自对齐归一化相似度", "scanpath", "proportion", ("gaze_x", "gaze_y", "gaze_valid", "time_s"), ("scanmatch_grid", "scanmatch_reference", "coordinate_unit", "coordinate_frame"), "R2", "self-alignment-ratio-v1", implemented=True, validated=True, validation_status="targeted_software_validation", evidence_ref="a02-boundary-recheck-20261013.json#scanmatch_boundaries", note="原始分数除以观察/参考自对齐分数的较大值；仅在分母为正且比值处于 [0,1] 时输出。"),
 )
+
+
+from .common_metrics import metric_definitions as _common_metric_definitions
+
+INDIVIDUAL_CATALOGUE += tuple(_spec(**definition) for definition in _common_metric_definitions())
 
 
 def get_individual_catalogue() -> list[dict[str, Any]]:
@@ -471,6 +476,9 @@ def _required_metadata(spec: dict[str, Any], config: dict[str, Any]) -> tuple[bo
                   and _finite_number(p.get("gap_penalty")) and float(p["gap_penalty"])<=0)
         elif key == "aoi_event_assignment":
             okay = config.get("aoi_event_assignment") in {"center", "time_intersection"}
+        elif key.startswith("qualified_") or key == "reading_aoi_order":
+            from .common_metrics import precondition
+            okay = precondition(key, config) is True
         elif key in config:
             okay = config[key] is not None and config[key] is not False
         elif key in _metadata(config):
@@ -487,6 +495,8 @@ def _finite_number(value: Any) -> bool:
 
 
 def _availability(frame: pd.DataFrame, config: dict[str, Any], specs: tuple[dict[str, Any], ...] = INDIVIDUAL_CATALOGUE) -> pd.DataFrame:
+    config = dict(config)
+    config["_aoi_common_preconditions"] = {}
     rows: list[dict[str, Any]] = []
     for spec in specs:
         fields_ok, field_reason = _field_condition(frame, spec["requires_fields"])
@@ -1863,6 +1873,10 @@ def analyze_individual(signals: pd.DataFrame, config: dict[str, Any], segments: 
     saccade_detail_rows: list[dict[str, Any]] = []
     heatmap_grid_rows: list[dict[str, Any]] = []
     scanpath_audit_rows: list[dict[str, Any]] = []
+    from .common_metrics import (NEW_IDS, AOI_IDS, RATE_IDS, append_distributions,
+                                 append_aoi_fixations, append_hit_rates)
+    common_audit_rows: list[dict[str, Any]] = []
+    aoi_exposure_rows: list[dict[str, Any]] = []
     status = "complete"
     identity_columns = ["subject_id", "session_id"] + [
         column for column in ("interaction_id", "trial", "analysis_stream_id", "timebase_id", "clock_id", "source_id", "physical_partition_id")
@@ -1900,6 +1914,11 @@ def analyze_individual(signals: pd.DataFrame, config: dict[str, Any], segments: 
             t = pd.to_numeric(subframe["time_s"], errors="coerce").to_numpy(dtype=float)
             start = local_start
             end = local_end
+            if requested & NEW_IDS:
+                append_distributions(subframe, config, provenance_ok, base, start, end, requested, metrics, group)
+            if requested & AOI_IDS:
+                append_aoi_fixations(subframe, group, aois, config, provenance_ok, base, start, end,
+                                     requested, metrics, common_audit_rows, aoi_exposure_rows)
             support_t = pd.to_numeric(support_frame["time_s"], errors="coerce").to_numpy(dtype=float)
             for sig, valcol, validcol in (("gaze", "gaze_x", "gaze_valid"), ("pupil_left", "pupil_left", "pupil_left_valid"), ("pupil_right", "pupil_right", "pupil_right_valid")):
                 if sig != "gaze" and valcol not in subframe:
@@ -2464,6 +2483,8 @@ def analyze_individual(signals: pd.DataFrame, config: dict[str, Any], segments: 
                     metrics.append(_row(spec,config,provenance_ok,**base,value=value,unit=str(_meta_value(config,"coordinate_unit") or "unknown"),reason=None if value is not None else "no_valid_points_or_coordinate_semantics",n_obs=len(vals),duration=end-start))
         if progress:
             progress((gi+1)/total_groups, f"individual {subject}/{session}")
+    if status != "cancelled" and requested & RATE_IDS:
+        append_hit_rates(aoi_exposure_rows, config, provenance_ok, requested, metrics)
     # Return only requested, currently available calculations; preserve an explicit
     # unavailable row for requested entries whose preconditions are not met.
     geometry_issue = config.get("_aoi_geometry_issue")
@@ -2551,7 +2572,9 @@ def analyze_individual(signals: pd.DataFrame, config: dict[str, Any], segments: 
                                  "target_audit":pd.DataFrame(target_audit_rows),
                                  "saccade_details":pd.DataFrame(saccade_detail_rows),
                                  "heatmap_grid":pd.DataFrame(heatmap_grid_rows),
-                                 "scanpath_audit":pd.DataFrame(scanpath_audit_rows)},
+                                 "scanpath_audit":pd.DataFrame(scanpath_audit_rows),
+                                 "aoi_fixation_audit":pd.DataFrame(common_audit_rows),
+                                 "aoi_exposures":pd.DataFrame(aoi_exposure_rows)},
                           metadata=meta,logs=logs)
 
 

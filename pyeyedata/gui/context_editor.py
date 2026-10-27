@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from openpyxl import load_workbook
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, QTimer, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 from pyeyedata.io import CsvOptions, DataImportError, MAX_IMPORT_BYTES, read_table
 
 from .mapping import FieldSpec, TableMappingEditor, context_fields
+from .task_timing import TaskTiming, TimingEstimator, format_timing
 from .widgets import DataFrameTableModel, DataFrameTableView
 
 
@@ -41,13 +42,34 @@ _A_CONTEXT_KINDS = (
     ("eyelid_intervals", "眼睑区间"),
     ("reference_fixations", "参考注视"),
     ("reference_trajectory", "参考轨迹"),
-    ("reading_annotations", "阅读标注（仅保存追溯）"),
+    ("reading_annotations", "阅读标注与 AOI 顺序"),
 )
 
 
+def _safe_sheet_names_after_guard(path: str) -> tuple[str, ...]:
+    """Read workbook sheet names after read_table has already passed its XLSX guard."""
+    source = Path(path).expanduser().resolve(strict=True)
+    if not source.is_file() or source.suffix.lower() != ".xlsx":
+        raise DataImportError("只支持 XLSX 工作簿")
+    if source.stat().st_size > MAX_IMPORT_BYTES:
+        raise DataImportError(f"输入超过 {MAX_IMPORT_BYTES}-byte 导入限制")
+    try:
+        workbook = load_workbook(source, read_only=True, data_only=False, keep_links=False)
+    except Exception as exc:
+        raise DataImportError(f"无法安全读取 XLSX 工作表信息：{exc}") from exc
+    try:
+        names = tuple(workbook.sheetnames)
+        if not names:
+            raise DataImportError("XLSX 工作簿不含工作表")
+        return names
+    finally:
+        workbook.close()
+
+
 class _ReadSignals(QObject):
-    completed = Signal(int, object)
-    failed = Signal(int, str)
+    completed = Signal(int, object, object)
+    failed = Signal(int, str, object)
+    progress = Signal(int, str, object)
 
 
 class _ReadWorker(QRunnable):
@@ -58,11 +80,17 @@ class _ReadWorker(QRunnable):
         self.sheet = sheet
         self.csv_options = csv_options
         self.preview = preview
+        self.timing_identity: object | None = None
         self.signals = _ReadSignals()
 
     @Slot()
     def run(self) -> None:
         try:
+            self.signals.progress.emit(
+                self.generation,
+                "正在读取辅助来源并准备预览" if self.preview else "正在读取完整辅助来源",
+                self.timing_identity,
+            )
             if Path(self.path).suffix.lower() == ".xlsx" and not self.sheet:
                 first = read_table(self.path, role="signals", csv_options=self.csv_options,
                                    preview_rows=100 if self.preview else 1)
@@ -77,19 +105,25 @@ class _ReadWorker(QRunnable):
                           "source_name": imported.source_name, "sheet_name": imported.sheet_name,
                           "source_rows": imported.source_rows, "byte_size": imported.byte_size,
                           "manifest": imported.manifest_entry(), "sheets": (imported.sheet_name,) if imported.sheet_name else ()}
-            self.signals.completed.emit(self.generation, result)
+            self.signals.completed.emit(self.generation, result, self.timing_identity)
         except DataImportError as exc:
             if Path(self.path).suffix.lower() == ".xlsx" and "Select a worksheet explicitly" in str(exc):
                 try:
-                    sheets = _safe_sheet_names(self.path)
-                    self.signals.completed.emit(self.generation, {"sheets": sheets, "requires_sheet": True})
+                    self.signals.progress.emit(self.generation, "正在列出可选工作表", self.timing_identity)
+                    # read_table already validated the XLSX container before raising the
+                    # multi-sheet notice; only read workbook metadata here, without a
+                    # second full file hash or another table scan.
+                    sheets = _safe_sheet_names_after_guard(self.path)
+                    self.signals.completed.emit(self.generation, {"sheets": sheets, "requires_sheet": True},
+                                                self.timing_identity)
                     return
                 except Exception as sheet_exc:
-                    self.signals.failed.emit(self.generation, f"{exc}; 无法列出工作表：{sheet_exc}")
+                    self.signals.failed.emit(self.generation, f"{exc}; 无法列出工作表：{sheet_exc}",
+                                             self.timing_identity)
                     return
-            self.signals.failed.emit(self.generation, str(exc))
+            self.signals.failed.emit(self.generation, str(exc), self.timing_identity)
         except Exception as exc:
-            self.signals.failed.emit(self.generation, f"{type(exc).__name__}: {exc}")
+            self.signals.failed.emit(self.generation, f"{type(exc).__name__}: {exc}", self.timing_identity)
 
 
 class ContextSourcePanel(QWidget):
@@ -103,6 +137,13 @@ class ContextSourcePanel(QWidget):
         super().__init__(parent)
         self.kind = kind
         self._generation = 0
+        self._timing_estimator = TimingEstimator({"context_preview": 5.0, "context_load": 15.0})
+        self._context_timings: dict[str, tuple[object, TaskTiming]] = {}
+        self._context_timing_serial = 0
+        self._last_context_timing: str | None = None
+        self._context_timing_timer = QTimer(self)
+        self._context_timing_timer.setInterval(1000)
+        self._context_timing_timer.timeout.connect(self._refresh_context_timing)
         self._frame = pd.DataFrame()
         self._preview = pd.DataFrame()
         self._manifest: dict[str, Any] = {}
@@ -129,6 +170,9 @@ class ContextSourcePanel(QWidget):
         self.remove_button = QPushButton("移除", self)
         self.status = QLabel("未选择文件", self)
         self.status.setWordWrap(True)
+        self.timing_label = QLabel("当前阶段：未开始读取", self)
+        self.timing_label.setObjectName(f"contextTiming_{kind}")
+        self.timing_label.setWordWrap(True)
         self.table_model = DataFrameTableModel(parent=self)
         self.table_view = DataFrameTableView(self)
         self.table_view.setModel(self.table_model)
@@ -204,7 +248,8 @@ class ContextSourcePanel(QWidget):
 
         note = QLabel(
             "这些辅助资料只在所选方法需要时添加。先对应源列并确认时间和单位，再点“载入完整表”。"
-            "阅读标注只作追溯，不会自动计算阅读指标。Excel 公式请先计算并保存；本软件只读取已保存的值。", self
+            "阅读计算需映射 reading_scope_id、stimulus_id、aoi_id、reading_order，并在指标参数中确认顺序和阅读方向。"
+            "旧标注缺少这些列时仍可保存追溯。Excel 公式请先计算并保存；本软件只读取已保存的值。", self
         )
         note.setWordWrap(True)
         layout = QVBoxLayout(self)
@@ -212,6 +257,7 @@ class ContextSourcePanel(QWidget):
         layout.addWidget(source_box)
         layout.addWidget(semantics)
         layout.addWidget(self.status)
+        layout.addWidget(self.timing_label)
         layout.addWidget(self._mapping, 2)
         layout.addWidget(QLabel("来源值预览（只读）", self))
         layout.addWidget(self.table_view, 1)
@@ -220,6 +266,76 @@ class ContextSourcePanel(QWidget):
     @property
     def source_path(self) -> str:
         return self.path_edit.text().strip()
+
+    def _start_context_timing(self, task_kind: str, generation: int, phase: str) -> object:
+        previous = self._context_timings.pop(task_kind, None)
+        if previous is not None:
+            previous[1].update_phase("新请求已取代旧请求")
+            previous[1].finish("superseded", train=False)
+        self._context_timing_serial += 1
+        identity = ("context", self.kind, task_kind, generation, self._context_timing_serial)
+        timing = TaskTiming(
+            self._timing_estimator,
+            task_kind,
+            phase,
+            identity=identity,
+            workload_key=self.kind,
+        )
+        self._context_timings[task_kind] = (identity, timing)
+        if not self._context_timing_timer.isActive():
+            self._context_timing_timer.start()
+        self._refresh_context_timing()
+        return identity
+
+    def _on_context_progress(self, generation: int, message: str, identity: object) -> None:
+        if not isinstance(identity, tuple) or len(identity) < 4:
+            return
+        task_kind = str(identity[2])
+        active = self._context_timings.get(task_kind)
+        if generation != self._generation or active is None or active[0] != identity:
+            return
+        active[1].update_phase(message)
+        self._refresh_context_timing()
+
+    def _finish_context_timing(
+        self,
+        task_kind: str,
+        generation: int,
+        identity: object,
+        status: str,
+        *,
+        train: bool = False,
+        phase: str | None = None,
+    ) -> None:
+        active = self._context_timings.get(task_kind)
+        if generation != self._generation or active is None or active[0] != identity:
+            return
+        timing = active[1]
+        if phase:
+            timing.update_phase(phase)
+        timing.finish(status, train=train)
+        self._last_context_timing = format_timing(timing.snapshot())
+        del self._context_timings[task_kind]
+        if not self._context_timings:
+            self._context_timing_timer.stop()
+        self._refresh_context_timing()
+
+    def _invalidate_context_timings(self, reason: str) -> None:
+        for task_kind, (_identity, timing) in tuple(self._context_timings.items()):
+            timing.update_phase(reason)
+            timing.finish("superseded", train=False)
+            self._last_context_timing = format_timing(timing.snapshot())
+            del self._context_timings[task_kind]
+        self._context_timing_timer.stop()
+        self._refresh_context_timing()
+
+    def _refresh_context_timing(self) -> None:
+        if self._context_timings:
+            self.timing_label.setText("\n".join(
+                format_timing(timing.snapshot()) for _identity, timing in self._context_timings.values()
+            ))
+        else:
+            self.timing_label.setText(self._last_context_timing or "当前阶段：未开始读取")
 
     def _show_input_help(self) -> None:
         from .help_center import show_help
@@ -237,6 +353,7 @@ class ContextSourcePanel(QWidget):
             self._dirty = True
             self.status.setText("映射或语义已修改；请重新载入完整表后再用于分析。")
         if self._loading:
+            self._invalidate_context_timings("映射或语义设置已变化，停止旧任务计时")
             self._generation += 1
             self._loading = False
             self.preview_button.setEnabled(True)
@@ -252,6 +369,7 @@ class ContextSourcePanel(QWidget):
         if not path:
             self.status.setText("先选择 CSV 或 XLSX 文件。")
             return
+        self._invalidate_context_timings("新读取请求已开始")
         self._generation += 1
         generation = self._generation
         self.status.setText("后台读取中；表格只读。")
@@ -260,12 +378,16 @@ class ContextSourcePanel(QWidget):
         self.load_button.setEnabled(False)
         if preview:
             worker = _ReadWorker(generation, path, self.sheet_combo.currentData(), self._csv_options(), preview=True)
+            identity = self._start_context_timing("context_preview", generation, f"正在预览{self.kind}")
+            worker.timing_identity = identity
             worker.signals.completed.connect(self._on_read_completed)
             worker.signals.failed.connect(self._on_read_failed)
+            worker.signals.progress.connect(self._on_context_progress)
         else:
             mapping = self._mapping.mapping()
             missing = [spec.label for spec in context_fields(self.kind) if spec.required and spec.name not in mapping]
             if missing:
+                self._loading = False
                 self.preview_button.setEnabled(True)
                 self.load_button.setEnabled(True)
                 self.status.setText("先完成必需字段映射：" + "、".join(missing))
@@ -273,6 +395,7 @@ class ContextSourcePanel(QWidget):
             time_names = [name for name in mapping if name == "time_s" or name.endswith("_s")]
             source_unit = str(self.time_unit.currentData() or "")
             if time_names and not source_unit:
+                self._loading = False
                 self.preview_button.setEnabled(True)
                 self.load_button.setEnabled(True)
                 self.status.setText("本 context 表含时间列，请明确源单位后再载入。")
@@ -290,13 +413,35 @@ class ContextSourcePanel(QWidget):
             }
             worker = _ContextConversionWorker(generation, path, self.sheet_combo.currentData(),
                                               self._csv_options(), self.kind, config)
+            identity = self._start_context_timing("context_load", generation, f"正在载入完整{self.kind}")
+            worker.timing_identity = identity
             worker.signals.completed.connect(self._on_full_completed)
             worker.signals.failed.connect(self._on_read_failed)
-        QThreadPool.globalInstance().start(worker)
+            worker.signals.progress.connect(self._on_context_progress)
+        try:
+            QThreadPool.globalInstance().start(worker)
+        except Exception as exc:
+            self._loading = False
+            self.preview_button.setEnabled(True)
+            self.load_button.setEnabled(True)
+            self.status.setText(f"后台读取无法启动：{type(exc).__name__}: {exc}")
+            task_kind = "context_preview" if preview else "context_load"
+            self._finish_context_timing(
+                task_kind,
+                generation,
+                identity,
+                "failed",
+                phase="后台读取无法启动",
+            )
 
-    @Slot(int, object)
-    def _on_read_completed(self, generation: int, payload: object) -> None:
-        if generation != self._generation or not isinstance(payload, dict):
+    @Slot(int, object, object)
+    def _on_read_completed(self, generation: int, payload: object, identity: object) -> None:
+        active = self._context_timings.get("context_preview")
+        if generation != self._generation or active is None or active[0] != identity:
+            return
+        if not isinstance(payload, dict):
+            self._finish_context_timing("context_preview", generation, identity, "failed", phase="预览返回无效内容")
+            self.status.setText("预览返回了无效内容。")
             return
         self._loading = False
         self.preview_button.setEnabled(True)
@@ -317,8 +462,16 @@ class ContextSourcePanel(QWidget):
             self.sheet_combo.blockSignals(False)
         frame = payload.get("frame")
         if not isinstance(frame, pd.DataFrame):
-            self.status.setText("工作簿含多个工作表，请明确选择一个后重新预览或导入。")
+            if payload.get("requires_sheet"):
+                self.status.setText("工作簿含多个工作表，请明确选择一个后重新预览或导入。")
+                self._finish_context_timing(
+                    "context_preview", generation, identity, "等待选择工作表", phase="等待选择工作表", train=False,
+                )
+            else:
+                self.status.setText("预览返回了无效内容。")
+                self._finish_context_timing("context_preview", generation, identity, "failed", phase="预览无效")
             return
+        self._context_timings["context_preview"][1].update_phase("正在安装预览和字段映射")
         self._preview = frame.copy(deep=True)
         self.table_model.set_frame(self._preview)
         self._mapping.set_frame(frame)
@@ -329,12 +482,18 @@ class ContextSourcePanel(QWidget):
             f" · SHA-256 {str(self._manifest.get('sha256', ''))[:16]}；点击‘载入完整表’保存整表"
         )
         if self.kind == "reading_annotations":
-            self.status.setText(self.status.text() + " · 仅存档，不进入 A 计算")
+            self.status.setText(self.status.text() + " · 阅读计算需完整 AOI 顺序及指标参数确认")
         self.changed.emit()
+        self._finish_context_timing("context_preview", generation, identity, "complete", train=True)
 
-    @Slot(int, object)
-    def _on_full_completed(self, generation: int, payload: object) -> None:
-        if generation != self._generation or not isinstance(payload, dict):
+    @Slot(int, object, object)
+    def _on_full_completed(self, generation: int, payload: object, identity: object) -> None:
+        active = self._context_timings.get("context_load")
+        if generation != self._generation or active is None or active[0] != identity:
+            return
+        if not isinstance(payload, dict):
+            self._finish_context_timing("context_load", generation, identity, "failed", phase="完整表返回无效内容")
+            self.status.setText("完整表导入器返回了无效内容。")
             return
         self._loading = False
         self.preview_button.setEnabled(True)
@@ -342,7 +501,9 @@ class ContextSourcePanel(QWidget):
         frame, preview, manifest = payload.get("frame"), payload.get("preview"), payload.get("manifest")
         if not isinstance(frame, pd.DataFrame) or not isinstance(preview, pd.DataFrame) or not isinstance(manifest, dict):
             self.status.setText("完整表导入器返回了无效内容。")
+            self._finish_context_timing("context_load", generation, identity, "failed", phase="完整表返回无效内容")
             return
+        self._context_timings["context_load"][1].update_phase("正在将完整辅助表安装到界面与来源记录")
         self._frame = frame.copy(deep=True)
         self._preview = preview.copy(deep=True)
         self._manifest = dict(manifest)
@@ -358,18 +519,25 @@ class ContextSourcePanel(QWidget):
             f" · kind={self.kind} · 时间列输出单位 {self._manifest.get('normalized_time_unit') or '未应用'}"
         )
         if self.kind == "reading_annotations":
-            self.status.setText(self.status.text() + " · 仅存档，不进入 A 计算")
+            self.status.setText(self.status.text() + " · 阅读计算需完整 AOI 顺序及指标参数确认")
         self.loaded.emit(self.kind, self._frame.copy(deep=True))
         self.changed.emit()
+        self._finish_context_timing("context_load", generation, identity, "complete", train=True)
 
-    @Slot(int, str)
-    def _on_read_failed(self, generation: int, message: str) -> None:
-        if generation != self._generation:
+    @Slot(int, str, object)
+    def _on_read_failed(self, generation: int, message: str, identity: object) -> None:
+        if not isinstance(identity, tuple) or len(identity) < 4:
+            return
+        task_kind = str(identity[2])
+        active = self._context_timings.get(task_kind)
+        if generation != self._generation or active is None or active[0] != identity:
             return
         self.preview_button.setEnabled(True)
         self.load_button.setEnabled(True)
         self.status.setText(f"读取失败：{message}")
         self.failed.emit(self.kind, message)
+        self._loading = False
+        self._finish_context_timing(task_kind, generation, identity, "failed", phase="读取失败")
 
     @staticmethod
     def _unit_conversion(values: pd.Series, unit: str, *, origin: str, timezone: str, frame_rate: float,
@@ -462,7 +630,7 @@ class ContextSourcePanel(QWidget):
             "coordinate_unit": config.get("coordinate_unit") or None,
             "coordinate_frame": config.get("coordinate_frame") or None,
             "source_refs": list(config.get("source_refs") or []),
-            "analysis_supported": kind != "reading_annotations",
+            "analysis_supported": kind != "reading_annotations" or {"reading_scope_id", "stimulus_id", "aoi_id", "reading_order"}.issubset(mapping),
         }
         return output.reset_index(drop=True), manifest
 
@@ -471,6 +639,7 @@ class ContextSourcePanel(QWidget):
         self._queue_read(preview=False)
 
     def clear_loaded(self, *, keep_path: bool = False) -> None:
+        self._invalidate_context_timings("来源已清除，停止旧任务计时")
         self._generation += 1
         self._loading = False
         self.preview_button.setEnabled(True)
@@ -513,16 +682,21 @@ class _ContextConversionWorker(QRunnable):
         self.kind = kind
         self.generation = generation
         self.config = dict(config)
+        self.timing_identity: object | None = None
         self.signals = _ReadSignals()
 
     @Slot()
     def run(self) -> None:
         try:
+            self.signals.progress.emit(self.generation, "正在读取完整辅助来源", self.timing_identity)
             imported = read_table(self.path, role="signals", sheet_name=self.sheet,
                                   csv_options=self.csv_options, preview_rows=None)
+            self.signals.progress.emit(self.generation, "完整来源已读取，正在核对文件哈希", self.timing_identity)
             raw_bytes = Path(self.path).read_bytes()
             if len(raw_bytes) != imported.byte_size or hashlib.sha256(raw_bytes).hexdigest() != imported.sha256:
                 raise DataImportError("来源文件在读取期间发生变化；请重新选择并导入。")
+            self.signals.progress.emit(self.generation, "来源哈希已核对，正在映射列并转换语义单位",
+                                       self.timing_identity)
             frame, manifest = ContextSourcePanel._materialize_context(self.kind, imported.frame, {
                 "source_name": imported.source_name, "sha256": imported.sha256,
                 "sheet_name": imported.sheet_name, "byte_size": imported.byte_size,
@@ -530,10 +704,13 @@ class _ContextConversionWorker(QRunnable):
             }, self.config)
             manifest["loaded_full"] = True
             manifest["raw_source_key"] = f"context/{self.kind}/{imported.source_name}"
+            self.signals.progress.emit(self.generation, "单位转换完成，正在准备安装完整表与来源清单",
+                                       self.timing_identity)
             self.signals.completed.emit(self.generation, {"frame": frame, "manifest": manifest,
-                                                           "raw_bytes": raw_bytes, "preview": imported.frame.head(100)})
+                                                           "raw_bytes": raw_bytes, "preview": imported.frame.head(100)},
+                                        self.timing_identity)
         except Exception as exc:
-            self.signals.failed.emit(self.generation, f"{type(exc).__name__}: {exc}")
+            self.signals.failed.emit(self.generation, f"{type(exc).__name__}: {exc}", self.timing_identity)
 
 
 class TimeWindowEditor(QWidget):

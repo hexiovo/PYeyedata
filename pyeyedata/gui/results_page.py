@@ -1,7 +1,8 @@
 """Read-only results, charts, run provenance, and history review page."""
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, is_dataclass, replace
+from copy import deepcopy
 import hashlib
 import json
 import math
@@ -44,6 +45,7 @@ from pyeyedata import AnalysisBundle
 
 from .charts import ResultChartPanel
 from .models import RunRecord, RunSnapshot
+from .task_timing import TaskTiming, TimingEstimator, format_duration, format_timing
 
 
 def _write_figure_output(destination, image, provenance):
@@ -290,6 +292,7 @@ class _MaskProxyModel(QSortFilterProxyModel):
 
 class _FilterSignals(QObject):
     finished = Signal(int, object)
+    failed = Signal(int, str)
 
 
 class _FilterWorker(QRunnable):
@@ -310,20 +313,24 @@ class _FilterWorker(QRunnable):
         self.signals = _FilterSignals(parent)
 
     def run(self) -> None:
-        frame = self.frame
-        mask = np.ones(len(frame), dtype=bool)
-        if self.search:
-            search_mask = np.zeros(len(frame), dtype=bool)
-            for column in frame.columns:
+        try:
+            frame = self.frame
+            mask = np.ones(len(frame), dtype=bool)
+            if self.search:
+                search_mask = np.zeros(len(frame), dtype=bool)
+                for column in frame.columns:
+                    values = frame[column].astype("string")
+                    search_mask |= values.str.contains(self.search, case=False, regex=False, na=False).to_numpy(dtype=bool)
+                mask &= search_mask
+            for column, term in self.filters.items():
+                if column not in frame:
+                    mask &= False
+                    continue
                 values = frame[column].astype("string")
-                search_mask |= values.str.contains(self.search, case=False, regex=False, na=False).to_numpy(dtype=bool)
-            mask &= search_mask
-        for column, term in self.filters.items():
-            if column not in frame:
-                mask &= False
-                continue
-            values = frame[column].astype("string")
-            mask &= values.str.contains(term, case=False, regex=False, na=False).to_numpy(dtype=bool)
+                mask &= values.str.contains(term, case=False, regex=False, na=False).to_numpy(dtype=bool)
+        except Exception as exc:
+            self.signals.failed.emit(self.generation, f"{type(exc).__name__}: {exc}")
+            return
         self.signals.finished.emit(self.generation, mask)
 
 
@@ -331,6 +338,7 @@ class _ResultTableTab(QWidget):
     """One lazily rendered table/chart pair with async filters and selected export."""
 
     selected_exported = Signal(str, int, object)
+    remediation_requested = Signal(object, int)
 
     def __init__(self, tab_name: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -341,6 +349,8 @@ class _ResultTableTab(QWidget):
         self._filter_generation = 0
         self._active_filters: dict[str, str] = {}
         self._selected_row_ids: tuple[str, ...] = ()
+        self._filter_timing_estimator = TimingEstimator(default_seconds={"filter": 5.0})
+        self._filter_timing: TaskTiming | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -360,6 +370,8 @@ class _ResultTableTab(QWidget):
         self.export_button = QPushButton("导出选中行 CSV/XLSX", self)
         self.filtered_export_button = QPushButton("导出当前筛选 CSV/XLSX", self)
         self.save_chart_button = QPushButton("保存图表 PNG/SVG/PDF", self)
+        self.remediation_button = QPushButton("查看此行原因 / 处理指引", self)
+        self.remediation_button.setObjectName(f"{tab_name}RemediationAction")
         for widget in (
             self.table_choice, self.search, self.filter_column, self.filter_value,
             self.add_filter_button, self.clear_filter_button,
@@ -367,7 +379,8 @@ class _ResultTableTab(QWidget):
             toolbar.addWidget(widget)
         root.addLayout(toolbar)
         export_row = QHBoxLayout()
-        for widget in (self.copy_button, self.export_button, self.filtered_export_button, self.save_chart_button):
+        for widget in (self.copy_button, self.export_button, self.filtered_export_button,
+                       self.save_chart_button, self.remediation_button):
             export_row.addWidget(widget)
         export_row.addStretch(1)
         root.addLayout(export_row)
@@ -375,6 +388,11 @@ class _ResultTableTab(QWidget):
         self.filter_state = QLabel("沒有筛选条件。", self)
         self.filter_state.setWordWrap(True)
         root.addWidget(self.filter_state)
+        self.filter_timing_label = QLabel("", self)
+        self.filter_timing_label.setObjectName(f"{tab_name}FilterTiming")
+        self.filter_timing_label.setWordWrap(True)
+        self.filter_timing_label.setVisible(False)
+        root.addWidget(self.filter_timing_label)
         self.table_view = QTableView(self)
         self.table_view.setObjectName(f"{tab_name}ResultsTable")
         self.table_view.setAlternatingRowColors(True)
@@ -397,6 +415,9 @@ class _ResultTableTab(QWidget):
         self._filter_timer.setSingleShot(True)
         self._filter_timer.setInterval(250)
         self._filter_timer.timeout.connect(self._start_filter)
+        self._filter_timing_timer = QTimer(self)
+        self._filter_timing_timer.setInterval(1000)
+        self._filter_timing_timer.timeout.connect(self._refresh_filter_timing)
         self.search.textChanged.connect(self._schedule_filter)
         self.add_filter_button.clicked.connect(self._add_filter)
         self.clear_filter_button.clicked.connect(self._clear_filters)
@@ -405,19 +426,21 @@ class _ResultTableTab(QWidget):
         self.export_button.clicked.connect(self.export_selected)
         self.filtered_export_button.clicked.connect(self.export_filtered)
         self.save_chart_button.clicked.connect(self.save_chart)
+        self.remediation_button.clicked.connect(self._request_remediation)
         self.table_view.selectionModel().selectionChanged.connect(self._selection_changed)
         self.export_button.setEnabled(False)
         self.save_chart_button.setEnabled(False)
         self._pool = QThreadPool.globalInstance()
         for widget in (self.table_choice, self.search, self.filter_column, self.filter_value,
                        self.add_filter_button, self.clear_filter_button, self.copy_button,
-                       self.export_button, self.filtered_export_button, self.save_chart_button):
+                       self.export_button, self.filtered_export_button, self.save_chart_button,
+                       self.remediation_button):
             widget.ensurePolished()
             widget.setMinimumHeight(widget.sizeHint().height())
         self._show_empty("没有可显示的结果表。")
 
     def _show_empty(self, message: str) -> None:
-        self._filter_generation += 1
+        self._advance_filter_generation()
         self._options = {}
         self._all_tables = {}
         self._source_model.set_frame(None)
@@ -439,6 +462,7 @@ class _ResultTableTab(QWidget):
         self.export_button.setEnabled(False)
         self.filtered_export_button.setEnabled(False)
         self.save_chart_button.setEnabled(False)
+        self.remediation_button.setEnabled(False)
         self.chart.set_data("", None)
         self.filter_state.setText(message)
 
@@ -449,7 +473,7 @@ class _ResultTableTab(QWidget):
         all_tables: Mapping[str, pd.DataFrame] | None = None,
         semantics: Mapping[str, Any] | None = None,
     ) -> None:
-        self._filter_generation += 1
+        self._advance_filter_generation()
         self._options = {str(name): frame for name, frame in options.items() if isinstance(frame, pd.DataFrame)}
         self._all_tables = {str(name): frame for name, frame in (all_tables or {}).items() if isinstance(frame, pd.DataFrame)}
         self._semantics = dict(semantics or {})
@@ -480,7 +504,7 @@ class _ResultTableTab(QWidget):
         if frame is None:
             self._show_empty("该表没有返回。")
             return
-        self._filter_generation += 1
+        self._advance_filter_generation()
         self._active_filters.clear()
         self._source_model.set_frame(frame)
         self._proxy_model.set_mask(None)
@@ -504,6 +528,7 @@ class _ResultTableTab(QWidget):
 
     def _schedule_filter(self, _text: str = "") -> None:
         if self.table_choice.isEnabled():
+            self._advance_filter_generation()
             self.filter_state.setText("正在等待筛选输入…")
             self._filter_timer.start()
 
@@ -515,13 +540,13 @@ class _ResultTableTab(QWidget):
             return
         self._active_filters[column] = value
         self.filter_value.clear()
-        self._filter_generation += 1
+        self._advance_filter_generation()
         self._start_filter()
 
     def _clear_filters(self) -> None:
         self._active_filters.clear()
         self.search.clear()
-        self._filter_generation += 1
+        self._advance_filter_generation()
         self._start_filter()
 
     def _start_filter(self) -> None:
@@ -529,24 +554,93 @@ class _ResultTableTab(QWidget):
             return
         frame = self._source_model._frame
         search = self.search.text().strip()
-        generation = self._filter_generation = self._filter_generation + 1
+        generation = self._filter_generation
         if not search and not self._active_filters:
             self._proxy_model.set_mask(None)
             self.filter_state.setText(self._count_text())
             self._update_chart()
             return
         self.filter_state.setText("正在后台计算组合筛选；结果表和图表会同步更新。")
+        self._start_filter_timing(generation)
         worker = _FilterWorker(generation, frame, search, self._active_filters, self)
         worker.signals.finished.connect(self._filter_finished)
-        self._pool.start(worker)
+        worker.signals.failed.connect(self._filter_failed)
+        try:
+            self._pool.start(worker)
+        except Exception as exc:
+            self._filter_failed(generation, f"{type(exc).__name__}: {exc}")
+            raise
 
     def _filter_finished(self, generation: int, mask: object) -> None:
-        if generation != self._filter_generation or not isinstance(mask, np.ndarray):
+        if generation != self._filter_generation:
             return
+        if not isinstance(mask, np.ndarray):
+            self._filter_failed(generation, "筛选工作线程返回了无效结果")
+            return
+        timing = self._filter_timing
+        if timing is not None and timing.identity == generation and timing.snapshot().status == "running":
+            self._finish_filter_timing("complete", train=True)
         self._proxy_model.set_mask(mask)
         self.filter_state.setText(self._count_text())
         self._update_chart()
         self._selection_changed()
+
+    def _filter_failed(self, generation: int, message: str) -> None:
+        if generation != self._filter_generation:
+            return
+        timing = self._filter_timing
+        if timing is not None and timing.identity == generation and timing.snapshot().status == "running":
+            self._finish_filter_timing("failed", train=False)
+        self.filter_state.setText(f"后台筛选失败：{message}；保留当前结果视图。")
+
+    def _advance_filter_generation(self) -> int:
+        self._filter_timer.stop()
+        self._filter_generation += 1
+        timing = self._filter_timing
+        if timing is not None:
+            if timing.snapshot().status in {"running", "cancelling"}:
+                timing.finish("superseded", train=False)
+                self._filter_timing_timer.stop()
+                self._refresh_filter_timing()
+            else:
+                self._filter_timing = None
+                self._filter_timing_timer.stop()
+                self._refresh_filter_timing()
+        return self._filter_generation
+
+    def _start_filter_timing(self, generation: int) -> None:
+        # Each table tab owns its estimator, so other result tabs never share samples.
+        timing = TaskTiming(
+            self._filter_timing_estimator,
+            "filter",
+            "后台筛选结果",
+            identity=generation,
+        )
+        self._filter_timing = timing
+        self._refresh_filter_timing()
+        self._filter_timing_timer.start()
+
+    def _finish_filter_timing(self, status: str, *, train: bool) -> None:
+        timing = self._filter_timing
+        if timing is None:
+            return
+        timing.finish(status, train=train)
+        self._filter_timing_timer.stop()
+        self._refresh_filter_timing()
+
+    def _refresh_filter_timing(self) -> None:
+        timing = self._filter_timing
+        if timing is None:
+            self.filter_timing_label.clear()
+            self.filter_timing_label.setVisible(False)
+            return
+        snapshot = timing.snapshot()
+        if snapshot.status == "superseded":
+            text = f"筛选请求已被新操作替代 · 实际耗时 {format_duration(snapshot.elapsed_seconds)}"
+        else:
+            text = format_timing(snapshot)
+        self.filter_timing_label.setText(text)
+        self.filter_timing_label.setVisible(True)
 
     def _count_text(self) -> str:
         total = self._source_model.rowCount()
@@ -591,8 +685,36 @@ class _ResultTableTab(QWidget):
         self._selected_row_ids = tuple(sorted(row_ids))
         self.copy_button.setEnabled(bool(proxy_indexes))
         self.export_button.setEnabled(bool(source_rows))
+        self.refresh_remediation_button(source_rows)
         if source_rows:
             self.filter_state.setText(self._count_text() + f" 已选 {len(source_rows):,} 行（按返回标识保存选择）。")
+
+    def selected_source_rows(self) -> list[int]:
+        """Return deduplicated source-model rows for the current proxy selection."""
+        rows: set[int] = set()
+        for proxy_index in self._selected_proxy_indexes():
+            source = self._proxy_model.mapToSource(proxy_index)
+            if source.isValid():
+                rows.add(source.row())
+        return sorted(rows)
+
+    def refresh_remediation_button(self, selected_rows: Sequence[int] | None = None) -> None:
+        from .diagnostic_results_actions import has_actionable_diagnostic
+
+        rows = self.selected_source_rows() if selected_rows is None else list(selected_rows)
+        enabled = False
+        record = getattr(self, "record", None)
+        if record is not None and len(rows) == 1 and 0 <= rows[0] < len(self._source_model._frame):
+            enabled = has_actionable_diagnostic(self._source_model._frame.iloc[rows[0]])
+        self.remediation_button.setEnabled(enabled)
+
+    def _request_remediation(self) -> None:
+        rows = self.selected_source_rows()
+        if len(rows) != 1:
+            self.filter_state.setText("请只选择一条结果行，避免把多个原因合并。")
+            self.refresh_remediation_button(rows)
+            return
+        self.remediation_requested.emit(self, rows[0])
 
     def copy_selection(self) -> None:
         indexes = self._selected_proxy_indexes()
@@ -723,6 +845,7 @@ class ResultsPage(QWidget):
     full_export_requested = Signal(str)
     help_requested = Signal(str)
     selected_rows_exported = Signal(str, int, object)
+    remediationNavigationRequested = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -738,6 +861,8 @@ class ResultsPage(QWidget):
         self._execution_status = "unknown"
         self._phase = "none"
         self._action_capabilities = {"archive": False, "reopen": False, "full_export": False}
+        self._comparison_left_run_id: str | None = None
+        self._comparison_right_run_id: str | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 8, 10, 8)
@@ -757,6 +882,10 @@ class ResultsPage(QWidget):
         self.history_choice.setMinimumContentsLength(48)
         self.history_choice.setEnabled(False)
         history_row.addWidget(self.history_choice, 1)
+        self.compare_runs_button = QPushButton("比较两次运行", self)
+        self.compare_runs_button.setObjectName("compareRuns")
+        self.compare_runs_button.setEnabled(False)
+        history_row.addWidget(self.compare_runs_button)
         self.return_current_button = QPushButton("回到当前结果", self)
         self.return_current_button.setEnabled(False)
         history_row.addWidget(self.return_current_button)
@@ -771,10 +900,14 @@ class ResultsPage(QWidget):
         self.full_export_button = QPushButton("完整 CSV/XLSX/PDF 导出", self)
         self.artifact_button = QPushButton("查看档案静态图/PDF", self)
         self.artifact_button.setEnabled(False)
+        self.run_remediation_button = QPushButton("查看运行原因", self)
+        self.run_remediation_button.setObjectName("runLevelRemediationAction")
+        self.run_remediation_button.setEnabled(False)
         for button in (self.archive_button, self.reopen_button, self.full_export_button):
             button.setEnabled(False)
             action_row.addWidget(button)
         action_row.addStretch(1)
+        action_row.addWidget(self.run_remediation_button)
         action_row.addWidget(self.artifact_button)
         root.addLayout(action_row)
         self.help_button = QPushButton("使用说明", self)
@@ -800,13 +933,16 @@ class ResultsPage(QWidget):
         root.addWidget(self.tabs, 1)
 
         self.history_choice.activated.connect(self._history_activated)
+        self.compare_runs_button.clicked.connect(self._open_run_comparison)
         self.return_current_button.clicked.connect(self._show_current)
         self.archive_button.clicked.connect(self._request_archive)
         self.reopen_button.clicked.connect(self._request_reopen)
         self.full_export_button.clicked.connect(lambda: self.full_export_requested.emit("all-formats"))
         self.help_button.clicked.connect(self._show_help_status)
+        self.run_remediation_button.clicked.connect(self._request_run_level_remediation)
         for tab in (self.overview_tab, self.qc_tab, self.individual_tab, self.group_tab, self.statistics_tab):
             tab.selected_exported.connect(self.selected_rows_exported)
+            tab.remediation_requested.connect(self._request_selected_remediation)
         self.set_c_capabilities()
 
     def set_preflight(self, outcome: Any) -> None:
@@ -828,7 +964,10 @@ class ResultsPage(QWidget):
             availability = maybe_tables.get("availability") if isinstance(maybe_tables, Mapping) else None
         options: dict[str, pd.DataFrame] = {}
         if isinstance(availability, pd.DataFrame):
-            options["可用情况 · 前提检查返回"] = availability
+            option = availability.copy(deep=True)
+            option.attrs["pyea_source_table"] = "availability"
+            option.attrs["pyea_source_positions"] = tuple(range(len(option)))
+            options["可用情况 · 前提检查返回"] = option
             self._tables["availability"] = availability.copy(deep=True)
         self.overview_tab.set_options({}, semantics={})
         self.qc_tab.set_options(options, all_tables=self._tables, semantics={})
@@ -899,21 +1038,36 @@ class ResultsPage(QWidget):
         result: dict[str, dict[str, pd.DataFrame]] = {
             "overview": {}, "qc": {}, "individual": {}, "group": {}, "statistics": {},
         }
+        for table_name, frame in tables.items():
+            frame.attrs["pyea_source_table"] = table_name
+            frame.attrs["pyea_source_positions"] = tuple(range(len(frame)))
         metrics = tables.get("metrics")
         if isinstance(metrics, pd.DataFrame):
             result["overview"]["指标 · 实际结果"] = metrics
             if "metric_id" in metrics:
                 metric_ids = metrics["metric_id"].astype("string")
-                individual = metrics.loc[metric_ids.str.startswith("individual.", na=False)].copy(deep=True)
-                group = metrics.loc[metric_ids.str.startswith("group.", na=False)].copy(deep=True)
-                quality = metrics.loc[metric_ids.map(lambda value: any(str(value).startswith(prefix) for prefix in _QUALITY_METRIC_PREFIXES), na_action="ignore").fillna(False)].copy(deep=True)
+                def selected_rows(mask: Sequence[bool]) -> pd.DataFrame:
+                    positions = np.flatnonzero(np.asarray(mask, dtype=bool))
+                    selected = metrics.iloc[positions].copy(deep=True)
+                    selected.attrs["pyea_source_table"] = "metrics"
+                    selected.attrs["pyea_source_positions"] = tuple(int(position) for position in positions)
+                    return selected
+
+                individual = selected_rows(metric_ids.str.startswith("individual.", na=False).to_numpy(dtype=bool))
+                group = selected_rows(metric_ids.str.startswith("group.", na=False).to_numpy(dtype=bool))
+                metric_values = metric_ids.tolist()
+                quality_mask = [
+                    not _missing(value) and any(str(value).startswith(prefix) for prefix in _QUALITY_METRIC_PREFIXES)
+                    for value in metric_values
+                ]
+                quality = selected_rows(quality_mask)
                 if len(individual) or metrics.empty:
                     result["individual"]["个体指标 · 实际结果"] = individual
                 if len(group) or metrics.empty:
                     result["group"]["多人指标 · 实际结果"] = group
                 if len(quality) or metrics.empty:
                     result["qc"]["质量指标 · 实际结果"] = quality
-                advanced = metrics.loc[metric_ids.str.startswith("advanced.", na=False)].copy(deep=True)
+                advanced = selected_rows(metric_ids.str.startswith("advanced.", na=False).to_numpy(dtype=bool))
                 if len(advanced):
                     result["individual"]["高级指标 · 实际结果"] = advanced
         for name, frame in tables.items():
@@ -936,11 +1090,9 @@ class ResultsPage(QWidget):
         if isinstance(metrics, pd.DataFrame):
             for category in result.values():
                 for label, frame in category.items():
-                    if label.endswith(" · 实际结果"):
+                    if label.endswith(" · 实际结果") and frame.attrs.get("pyea_source_table") != "metrics":
                         frame.attrs["pyea_source_table"] = "metrics"
-                        if not metrics.index.is_unique:
-                            raise ValueError("结果表索引不唯一，无法安全关联分类视图。")
-                        frame.attrs["pyea_source_positions"] = tuple(int(value) for value in metrics.index.get_indexer(frame.index))
+                        frame.attrs["pyea_source_positions"] = tuple(range(len(frame)))
         return result
 
     @staticmethod
@@ -988,6 +1140,151 @@ class ResultsPage(QWidget):
         record = self.history_choice.itemData(index)
         if isinstance(record, RunRecord):
             self.history_selected.emit(record)
+
+    def _build_comparison_dialog(self):
+        """Create the comparison UI while preserving history selection by run ID."""
+        from .comparison_dialog import RunComparisonDialog
+
+        dialog = RunComparisonDialog(self)
+        dialog.set_history(
+            self._history,
+            left_run_id=self._comparison_left_run_id,
+            right_run_id=self._comparison_right_run_id,
+        )
+        return dialog
+
+    def _open_run_comparison(self) -> None:
+        if not self.compare_runs_button.isEnabled():
+            return
+        dialog = self._build_comparison_dialog()
+        self._active_comparison_dialog = dialog
+        dialog.exec()
+        result = dialog.comparison_result
+        if result is not None:
+            self._comparison_left_run_id = result.left_run_id
+            self._comparison_right_run_id = result.right_run_id
+        dialog.deleteLater()
+
+    def _build_selected_remediation(self, tab: _ResultTableTab):
+        """Resolve one proxy-selected row to the exact immutable source row."""
+        from .diagnostic_results_actions import has_actionable_diagnostic, match_availability_row
+        from .remediation import build_remediation
+
+        record = self.current_record()
+        if not isinstance(record, RunRecord):
+            return None
+        rows = tab.selected_source_rows()
+        if len(rows) != 1:
+            return None
+        try:
+            table_name, positions = tab.source_binding()
+            source_position = int(positions[rows[0]])
+            if table_name not in record.table_names():
+                return None
+            actual = record.table_copy(table_name)
+            if not 0 <= source_position < len(actual):
+                return None
+            diagnostic = deepcopy(actual.iloc[source_position].to_dict())
+        except (IndexError, KeyError, TypeError, ValueError, RuntimeError):
+            return None
+        if not has_actionable_diagnostic(diagnostic):
+            return None
+
+        availability_row = None
+        availability_message = ""
+        if table_name != "availability" and "availability" in record.table_names():
+            match = match_availability_row(diagnostic, record.table_copy("availability"))
+            availability_row = match.row
+            if not match.matched:
+                availability_message = match.reason
+        guide = build_remediation(record, diagnostic, availability_row=availability_row)
+        if availability_message:
+            guide = replace(guide, limitations=tuple(guide.limitations) + (availability_message,))
+        payload = {
+            "run_id": str(record.run_id),
+            "revision_id": str(record.revision_id) if record.revision_id is not None else None,
+            "diagnostic": diagnostic,
+        }
+        return guide, payload
+
+    @staticmethod
+    def _run_level_diagnostic(record: RunRecord) -> dict[str, Any]:
+        metadata = dict(record.metadata())
+        return {
+            "run_id": str(record.run_id),
+            "revision_id": record.revision_id,
+            "phase": str(record.phase),
+            "status": str(record.status or metadata.get("execution_status", "unknown")),
+            "failure_type": metadata.get("failure_type"),
+            "failure_reason": metadata.get("failure_reason"),
+            "reason_code": metadata.get("reason_code"),
+            "reason": metadata.get("reason", metadata.get("failure_reason")),
+            "required_fields": metadata.get("required_fields"),
+            "required_metadata": metadata.get("required_metadata"),
+            "parameter_path": metadata.get("parameter_path"),
+            "logs": tuple(record.logs()),
+        }
+
+    def _build_run_level_remediation(self):
+        from .diagnostic_results_actions import has_actionable_diagnostic
+        from .remediation import build_remediation
+
+        record = self.current_record()
+        if not isinstance(record, RunRecord) or record.table_names():
+            return None
+        diagnostic = deepcopy(self._run_level_diagnostic(record))
+        if not has_actionable_diagnostic(diagnostic):
+            return None
+        guide = build_remediation(record, diagnostic)
+        return guide, {
+            "run_id": str(record.run_id),
+            "revision_id": str(record.revision_id) if record.revision_id is not None else None,
+            "diagnostic": diagnostic,
+        }
+
+    def _emit_remediation_navigation(self, payload: Mapping[str, Any] | None, target: Any) -> None:
+        from .remediation import NavigationTarget
+
+        if not isinstance(payload, Mapping) or not isinstance(target, NavigationTarget):
+            return
+        run_id = str(payload.get("run_id") or "")
+        if not run_id:
+            return
+        self.remediationNavigationRequested.emit({
+            "target": target,
+            "run_id": run_id,
+            "revision_id": payload.get("revision_id"),
+            "diagnostic": deepcopy(dict(payload.get("diagnostic", {}))),
+        })
+
+    def _show_remediation_dialog(self, guide: Any, payload: Mapping[str, Any]) -> None:
+        from .remediation_dialog import RemediationDialog
+
+        dialog = RemediationDialog(self)
+        dialog.set_guide(guide)
+
+        def navigate(target: Any) -> None:
+            self._emit_remediation_navigation(payload, target)
+            # Close the modal after routing so the host destination is usable.
+            dialog.accept()
+
+        dialog.navigateRequested.connect(navigate)
+        self._active_remediation_dialog = dialog
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _request_selected_remediation(self, tab: _ResultTableTab, _source_row: int) -> None:
+        built = self._build_selected_remediation(tab)
+        if built is None:
+            tab.filter_state.setText("无法将所选视图行唯一对应到带原因的运行源行。")
+            tab.refresh_remediation_button()
+            return
+        self._show_remediation_dialog(*built)
+
+    def _request_run_level_remediation(self) -> None:
+        built = self._build_run_level_remediation()
+        if built is not None:
+            self._show_remediation_dialog(*built)
 
     def show_record(self, record: RunRecord, stale_nodes: Sequence[str] = ()) -> None:
         """Show a detached historical record as read-only, including true table count."""
@@ -1156,6 +1453,13 @@ class ResultsPage(QWidget):
         record = self.current_record()
         for tab in (self.overview_tab, self.qc_tab, self.individual_tab, self.group_tab, self.statistics_tab):
             tab.record = record
+            tab.refresh_remediation_button()
+        self.compare_runs_button.setEnabled(len(self._history) >= 2)
+        run_diagnostic_enabled = False
+        if isinstance(record, RunRecord) and not record.table_names():
+            from .diagnostic_results_actions import has_actionable_diagnostic
+            run_diagnostic_enabled = has_actionable_diagnostic(self._run_level_diagnostic(record))
+        self.run_remediation_button.setEnabled(run_diagnostic_enabled)
         self.archive_button.setText("保存运行档案")
         self.archive_button.setEnabled(bool(archive and record is not None))
         self.reopen_button.setEnabled(reopen)

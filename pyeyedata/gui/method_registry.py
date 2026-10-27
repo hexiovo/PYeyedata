@@ -244,6 +244,79 @@ for metric_id in _SM_CHILDREN:
         "consumer": "individual.analyze_individual → scanmatch_cell_tokens / needleman_wunsch_score",
     }
 
+from ..common_metrics import metric_definitions as _common_definitions, AOI_IDS as _COMMON_AOI_IDS, READING_PREFIX
+
+_COMMON_DEFINITIONS = _common_definitions()
+_COMMON_IDS = tuple(item["metric_id"] for item in _COMMON_DEFINITIONS)
+_READING_IDS = tuple(mid for mid in _COMMON_IDS if mid.startswith(READING_PREFIX))
+_READING_CONTEXT = {
+    "key": "reading_annotations", "type": "pandas.DataFrame",
+    "consumer": "common_metrics._reading_table / reading_measures",
+    "required_columns": ["reading_scope_id", "stimulus_id", "aoi_id", "reading_order"],
+    "methods": list(_READING_IDS),
+    "availability_relation": "explicit reading order/direction confirmation; unique positive order in each stimulus/scope",
+}
+for _definition in _COMMON_DEFINITIONS:
+    _mid = _definition["metric_id"]
+    _parameters = ["event_source_confirmed", "event_source", "event_algorithm_version", "event_source_types"]
+    if ".blink." in _mid:
+        _parameters.append("blink_source_confirmed")
+    if _mid in _COMMON_AOI_IDS:
+        _parameters.append("fixation_observation_confirmed")
+    if _mid.endswith((".fixation_ttff", ".fixations_before_first")):
+        _parameters.append("reference_event_s")
+    if _mid.startswith(READING_PREFIX):
+        _parameters.extend(["reading_direction", "reading_scope_id", "reading_order_confirmed"])
+    _INDIVIDUAL_METHODS[_mid] = {
+        "implemented": True, "validated": True, "evidence_ref": _definition["evidence_ref"],
+        "required_fields": list(_definition["fields"]), "required_metadata": list(_definition["metadata"]),
+        "parameters": _parameters,
+        "context": ["reading_annotations"] if _mid.startswith(READING_PREFIX) else [],
+        "consumer": "common_metrics.append_distributions / append_aoi_fixations / append_hit_rates",
+    }
+for _definition in _INDIVIDUAL_FIELDS:
+    if _definition["name"] in {"reading_direction", "reading_scope_id"}:
+        _definition["methods"].extend(_READING_IDS)
+_INDIVIDUAL_FIELDS += (
+    _field("reference_event_s", "optional_float", None,
+           "AOI 首次注视的参考起点（秒），需位于当前分析窗内；不得将未命中置为 0。", unit="s",
+           label="首次注视参考时刻", consumer="common_metrics.append_aoi_fixations",
+           methods=tuple(mid for mid in _COMMON_IDS if mid.endswith((".fixation_ttff", ".fixations_before_first"))),
+           availability_relation="finite reference inside current window"),
+    _field("fixation_observation_confirmed", "boolean", False,
+           "明确确认：已提供的注视分类覆盖所有已观察试次/时间窗；仅提供选中的注视事件时不要勾选。数据缺口仍保留未知状态。",
+           label="注视分类覆盖观察窗已确认", consumer="common_metrics.append_aoi_fixations",
+           methods=tuple(_COMMON_AOI_IDS), availability_relation="required for known misses and complete reading observations"),
+    _field("reading_order_confirmed", "boolean", False,
+           "确认阅读标注的 reading_order 按阅读推进递增；ltr/rtl 均以显式顺序为准，不从坐标猜测。",
+           label="AOI 阅读顺序已确认", consumer="common_metrics._reading_table",
+           methods=_READING_IDS, availability_relation="reading_annotations + direction/scope + unique positive order"),
+    _field("event_source_confirmed", "boolean", False,
+           "仅对明确外部事件来源进行确认；本地合格事件沿用自己的方法证据。",
+           label="外部事件来源已确认", consumer="individual._event_consumer_rows / common_metrics.precondition",
+           methods=_COMMON_IDS, availability_relation="legacy/external source declaration; never certifies hardware"),
+    _field("event_source", "optional_str", None, "外部事件的实际设备/软件来源名称。",
+           label="外部事件来源", consumer="individual._event_consumer_rows", methods=_COMMON_IDS,
+           availability_relation="nonempty source name for legacy declarations"),
+    _field("event_algorithm_version", "optional_str", None, "外部事件分类方法/软件版本。",
+           label="外部事件分类版本", consumer="individual._event_consumer_rows", methods=_COMMON_IDS,
+           availability_relation="nonempty source version for legacy declarations"),
+    _field("event_source_types", "list[str] | None", None,
+           '来源明确覆盖的事件类型 JSON，例如 ["fixation", "saccade", "blink"]；不自动从缺少事件推断覆盖。',
+           label="来源覆盖事件类型", consumer="common_metrics.precondition", methods=_COMMON_IDS,
+           availability_relation="explicit declaration allows empty classified event sets"),
+    _field("blink_source_confirmed", "boolean", False, "确认眨眼事件有可靠来源；丢失采样不作为眨眼。",
+           label="眨眼事件来源已确认", consumer="individual._event_consumer_rows",
+           methods=tuple(mid for mid in _COMMON_IDS if ".blink." in mid),
+           availability_relation="reliable vendor blink evidence"),
+)
+
+# Only additive, non-scientific defaults may be filled when opening an old v1 plan.
+COMMON_PLAN_DEFAULTS = {field["name"]: deepcopy(field["default"]) for field in _INDIVIDUAL_FIELDS
+                        if field["name"] in {"reference_event_s", "fixation_observation_confirmed",
+                            "reading_order_confirmed", "event_source_confirmed", "event_source",
+                            "event_algorithm_version", "event_source_types", "blink_source_confirmed"}}
+
 _INDIVIDUAL_FIELDS_BY_NAME = {field["name"]: field for field in _INDIVIDUAL_FIELDS}
 _INDIVIDUAL_FAMILY_SELECTORS = {
     "individual.scanpath.multimatch": {
@@ -282,7 +355,7 @@ def individual_method_registry() -> dict[str, dict[str, Any]]:
             deepcopy(_INDIVIDUAL_FIELDS_BY_NAME[name]) for name in record["parameters"]
         ]
         record["named_context"] = [
-            deepcopy(context) for context in (_TARGET_CONTEXT, _REFERENCE_FIXATIONS, _REFERENCE_TRAJECTORY)
+            deepcopy(context) for context in (_TARGET_CONTEXT, _REFERENCE_FIXATIONS, _REFERENCE_TRAJECTORY, _READING_CONTEXT)
             if context["key"] in record["context"]
         ]
     return methods

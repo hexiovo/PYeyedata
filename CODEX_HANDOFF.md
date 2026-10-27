@@ -1,6 +1,6 @@
 # PYeyedata 项目现状与接手指南
 
-更新：2026-10-19；应用版本 **0.9.5**，PRD 0.9，数据契约 1.3.0。默认分支 `master`。
+更新：2026-10-27；应用版本 **0.9.6**，PRD 0.9，数据契约 1.3.0。本版本纳入工作流增强、阶段化用时估计与常见眼动指标扩展；默认分支 `master`。本次构建和检查结果以产物目录内 `release-info.json` 为准；GitHub Release 是否已发布须查看远端。
 
 ## 给另一台主机的 Codex
 
@@ -21,9 +21,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Che
 
 ## 现有功能和入口
 
+- 新增 52 个常见指标（34 个事件分布、9 个 AOI 注视/命中、9 个阅读指标），在指标页选择；阅读标注与顺序复用已有辅助来源。首次注视与原有采样进入时间分开输出，未知观察不作未命中；新增覆盖确认只声明分类范围，不替代设备验证。定义、操作及兼容规则见 [`docs/COMMON_METRICS.md`](docs/COMMON_METRICS.md)。`common_metrics.py` 负责计算，`gui/diagnostic_common_metrics.py` 提供固定手算/生成/集成检查，已接入 reliability-smoke。个体算法为 `individual-0.3.0`；档案/方案 schema 未变，旧方案只补新增字段的安全 None/False 缺省。
+
 - GUI 七步工作流：导入/映射、质量与处理、指标、群体上下文、统计设计、运行、结果与追溯。支持数据质量门控、个体/群体/高级信号分析、统计、图表和 CSV/XLSX/PDF 等导出。
 - `.pyeplan` 保存分析设置，排除输入数据与结果；`.pyea` 保存 full/results_only 运行档案。关闭窗口会提醒归档未保存运行。
+- 0.9.6 新增六项工作流入口：导入映射预设、逐文件批量队列、质量时间轴定位、静态图片 AOI 编辑、历史运行比较和缺失原因导航。逐项操作及限制见 [`docs/WORKFLOW_ENHANCEMENTS.md`](docs/WORKFLOW_ENHANCEMENTS.md)。导入预设独立于 `.pyeplan`；批量默认每个文件独立分析，群体流程另行启动。
+- 批量队列会为每项生成 CSV、results-only `.pyea` 与状态清单；results-only 档案不含原始/处理轨迹，所以不能用作历史时间轴数据源。AOI 图片需要显式绑定刺激，坐标只有符合现有坐标语义检查才可用于分析。个体 AOI 指标还要求在导入页对当前数据修订明确确认 AOI 坐标映射；这项数据来源确认与群体页的跨成员共享 AOI 坐标声明分开管理，并随修订变化失效。
 - 内置 F1 新手指南、十类输入说明、合成练习与模板、41 页中文图解 PDF；指南内容版本仍为 0.9.3，不随本次部署版本虚增。
+- 后台任务会显示当前阶段、已用时间和预计剩余时间；没有同类完成样本时使用明确的非零初始值，再以本次会话中同类成功/partial 任务校准，不落盘。导入来源、辅助 context 来源和结果表筛选各自隔离计时；归档准备在用户确认前结束计时。超时、取消、映射确认和工作表选择等待分别显示或暂停，固定可靠性诊断覆盖计时生命周期。
 - 0.9.4 品牌图标已纳入本次提交，包含 EXE/窗口图标与稳定的 Windows AppUserModelID。0.9.5 增加部署、发布和接手入口，不改科学算法。
 
 ## 代码地图
@@ -33,7 +38,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Che
 | `pyeyedata_launcher.py`, `pyeyedata_bootstrap.py` | 启动前准备用户目录、日志、Matplotlib 缓存；诊断入口 |
 | `pyeyedata/gui/app.py`, `main_window.py`, `session.py`, `tasks.py` | Qt 应用、界面、会话、后台任务与取消 |
 | `pyeyedata/gui/bridge.py` | GUI 与科学 pipeline 的事务边界，运行/缓存发布 |
-| `pyeyedata/gui/diagnostic.py` | 启动、合成 pipeline、可靠性、易用性、档案重开固定诊断 |
+| `pyeyedata/gui/diagnostic.py`, `task_timing.py`, `diagnostic_timing.py` | 启动与合成固定诊断、阶段用时估计和计时生命周期核对 |
+| `pyeyedata/gui/import_profiles.py`, `batch_queue.py`, `batch_export.py` | 独立导入预设、逐文件队列状态与结果导出 |
+| `pyeyedata/gui/signal_timeline.py`, `aoi_editor.py`, `run_comparison.py`, `remediation.py` | 质量页时间轴、静态图 AOI 编辑、历史比较与原因导航组件 |
 | `contracts.py`, `io.py`, `store.py` | 数据契约、输入读取、底层存储 |
 | `processing.py`, `eye_streams.py`, `events.py`, `aoi_geometry.py` | 预处理、左右眼、事件与 AOI 几何 |
 | `pipeline.py`, `individual.py`, `group.py`, `advanced_signals.py` | 分析编排与科学计算模块 |
@@ -61,7 +68,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Che
 
 Release 的 `release-info.json` 是本次构建的提交 SHA、实际校验结果、环境、EXE 哈希与限制的事实来源；GitHub Release 是否已发布以远端页面为准。构建前先提交所有修改，包括版本记录；构建后不要再修改已哈希输入来追记结果，否则源码会与 EXE 不符。
 
-固定诊断使用合成数据和 Qt offscreen，**尚未声明真实设备验证、干净新主机验收、原生多显示器/DPI 覆盖**。无代码签名证书。后续改动要按影响补针对性验证，不能从三个 smoke 推断全部科学方法均独立验证过。
+固定诊断使用合成数据和 Qt offscreen，**尚未声明真实设备验证、干净新主机验收、原生多显示器/DPI 覆盖**。六项增强与新指标已纳入 0.9.6；具体入口、当前限制与版本范围见 `version.md` 最新条目和两份补充说明（便携 ZIP 同附）。无代码签名证书。后续改动要按影响补针对性验证，不能从 smoke 推断全部科学方法均独立验证过。
 
 旧 `version.md` 含原机器 E:/H:/F: 审计路径和阶段性 pending 记录，按日期阅读，不能将早期记录当作最新结论。这些目录不随仓库转移，构建和普通开发不依赖它们。`plans/portable-release.md` 记录本次部署改造方案；没有隐藏的外部接手任务清单。
 

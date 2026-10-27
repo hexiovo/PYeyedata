@@ -90,7 +90,10 @@ def overlapping_events(
     contribution is carried by ``intersection_*`` columns.
     """
     if not isinstance(events, pd.DataFrame) or events.empty or not EVENT_QUERY_REQUIRED <= set(events):
-        return pd.DataFrame(columns=events.columns if isinstance(events, pd.DataFrame) else None)
+        empty = pd.DataFrame(columns=events.columns if isinstance(events, pd.DataFrame) else None)
+        for column in ("intersection_start_s", "intersection_end_s", "intersection_duration_s"):
+            empty[column] = pd.Series(dtype=float)
+        return empty
     start, end = float(start_s), float(end_s)
     if not np.isfinite(start) or not np.isfinite(end) or end <= start:
         raise ValueError("event query window must be finite and increasing")

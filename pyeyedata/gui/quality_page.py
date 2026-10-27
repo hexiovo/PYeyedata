@@ -3,14 +3,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from decimal import Decimal
-from math import ceil, isfinite
+from math import isfinite
 import numbers
 from typing import Any, Iterable, Mapping
 
 import numpy as np
 import pandas as pd
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtCore import QItemSelectionModel, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -30,170 +29,14 @@ from PySide6.QtWidgets import (
 
 from pyeyedata import ProcessingConfig
 from pyeyedata.gui.bridge import PipelineOutcome
+from pyeyedata.gui.diagnostic_timeline import (
+    diagnostic_rows_match,
+    resolve_diagnostic_location,
+    validate_outcome_revision,
+)
 from pyeyedata.gui.models import DatasetRevision
+from pyeyedata.gui.signal_timeline import TimelineWidget
 from pyeyedata.gui.widgets import DataFrameTableModel, DataFrameTableView
-
-
-_COLORS = (QColor("#2368a0"), QColor("#d97919"), QColor("#29956b"), QColor("#8b5bb5"))
-_SIGNAL_VALID = {
-    "gaze": ("gaze_valid", ("gaze_x", "gaze_y"), "analysis_gaze_valid"),
-    "pupil_left": ("pupil_left_valid", ("pupil_left",), "analysis_pupil_left_valid"),
-    "pupil_right": ("pupil_right_valid", ("pupil_right",), "analysis_pupil_right_valid"),
-}
-
-
-def _finite_array(values: Iterable[Any]) -> np.ndarray:
-    return pd.to_numeric(pd.Series(list(values)), errors="coerce").to_numpy(dtype=float, na_value=np.nan)
-
-
-class _QcPlot(QWidget):
-    """Small self-contained plot that needs no optional plotting dependency."""
-
-    def __init__(self, title: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.title = title
-        self.x_label = ""
-        self.y_label = ""
-        self.note = ""
-        self.kind = "line"
-        self.series: list[tuple[str, np.ndarray, np.ndarray, QColor]] = []
-        self.setMinimumSize(360, 220)
-        self.setAutoFillBackground(True)
-
-    def set_series(
-        self,
-        series: Iterable[tuple[str, Iterable[Any], Iterable[Any]]],
-        *,
-        x_label: str,
-        y_label: str,
-        note: str = "",
-        kind: str = "line",
-    ) -> None:
-        self.kind = kind
-        self.x_label = x_label
-        self.y_label = y_label
-        self.note = note
-        self.series = []
-        for index, (name, x, y) in enumerate(series):
-            xa, ya = _finite_array(x), _finite_array(y)
-            size = min(len(xa), len(ya))
-            self.series.append((str(name), xa[:size], ya[:size], _COLORS[index % len(_COLORS)]))
-        self.update()
-
-    def set_histogram(self, values: Iterable[Any], *, note: str = "") -> None:
-        vals = _finite_array(values)
-        vals = vals[np.isfinite(vals) & (vals > 0)]
-        if not len(vals):
-            self.set_series([], x_label="dt (s)", y_label="计数", note=note)
-            return
-        counts, edges = np.histogram(vals, bins=min(30, max(5, int(np.sqrt(len(vals))))))
-        centers = (edges[:-1] + edges[1:]) / 2
-        self.set_series([("正向 dt", centers, counts)], x_label="dt (s)", y_label="计数", note=note, kind="histogram")
-
-    def paintEvent(self, event: Any) -> None:  # noqa: N802 - Qt override
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#ffffff"))
-        painter.setPen(QColor("#263746"))
-        painter.drawText(12, 20, self.title)
-        if self.note:
-            painter.setPen(QColor("#657482"))
-            painter.drawText(12, 38, self.note)
-        if not any(len(x) for _, x, _, _ in self.series):
-            painter.setPen(QColor("#6c7882"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "暂无可绘制的后端数据")
-            painter.end()
-            return
-
-        plot = self.rect().adjusted(54, 48 if self.note else 34, -16, -40)
-        if plot.width() < 80 or plot.height() < 60:
-            painter.end()
-            return
-        finite_pairs = []
-        for _, xs, ys, _ in self.series:
-            size = min(len(xs), len(ys))
-            mask = np.isfinite(xs[:size]) & np.isfinite(ys[:size])
-            if mask.any():
-                finite_pairs.append((xs[:size][mask], ys[:size][mask]))
-        if not finite_pairs:
-            painter.setPen(QColor("#6c7882"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "所选数据没有有限值")
-            painter.end()
-            return
-        finite_x = np.concatenate([x for x, _ in finite_pairs])
-        finite_y = np.concatenate([y for _, y in finite_pairs])
-        if not len(finite_x) or not len(finite_y):
-            painter.end()
-            return
-        x_min, x_max = float(np.min(finite_x)), float(np.max(finite_x))
-        y_min, y_max = float(np.min(finite_y)), float(np.max(finite_y))
-        if x_min == x_max:
-            x_min, x_max = x_min - 0.5, x_max + 0.5
-        if y_min == y_max:
-            padding = max(abs(y_min) * 0.05, 0.5)
-            y_min, y_max = y_min - padding, y_max + padding
-        elif self.kind == "histogram":
-            y_min = 0.0
-            y_max += max(1.0, (y_max - y_min) * 0.08)
-
-        painter.setPen(QPen(QColor("#dce3e8"), 1))
-        for tick in range(5):
-            x = plot.left() + plot.width() * tick / 4
-            y = plot.bottom() - plot.height() * tick / 4
-            painter.drawLine(int(x), plot.top(), int(x), plot.bottom())
-            painter.drawLine(plot.left(), int(y), plot.right(), int(y))
-            painter.setPen(QColor("#657482"))
-            painter.drawText(int(x - 22), plot.bottom() + 16, 46, 16, Qt.AlignmentFlag.AlignHCenter,
-                             f"{x_min + (x_max - x_min) * tick / 4:.3g}")
-            painter.drawText(2, int(y - 8), 48, 16, Qt.AlignmentFlag.AlignRight,
-                             f"{y_min + (y_max - y_min) * tick / 4:.3g}")
-            painter.setPen(QPen(QColor("#dce3e8"), 1))
-        painter.setPen(QPen(QColor("#71808b"), 1.2))
-        painter.drawRect(plot)
-
-        legend_x = plot.left() + 8
-        for name, xs, ys, color in self.series:
-            size = min(len(xs), len(ys))
-            if size > 1800:
-                stride = ceil(size / 1800)
-                xs, ys = xs[::stride], ys[::stride]
-            painter.setPen(QPen(color, 1.8))
-            if self.kind == "histogram":
-                bar_w = max(2, plot.width() / max(1, len(xs)) * 0.72)
-                for x_value, y_value in zip(xs, ys):
-                    if not np.isfinite(x_value) or not np.isfinite(y_value):
-                        continue
-                    sx = plot.left() + (x_value - x_min) / (x_max - x_min) * plot.width()
-                    sy = plot.bottom() - (y_value - y_min) / (y_max - y_min) * plot.height()
-                    painter.fillRect(int(sx - bar_w / 2), int(sy), int(bar_w), int(plot.bottom() - sy), color)
-            else:
-                previous: tuple[float, float] | None = None
-                for x_value, y_value in zip(xs, ys):
-                    if not np.isfinite(x_value) or not np.isfinite(y_value):
-                        previous = None
-                        continue
-                    current = (
-                        plot.left() + (x_value - x_min) / (x_max - x_min) * plot.width(),
-                        plot.bottom() - (y_value - y_min) / (y_max - y_min) * plot.height(),
-                    )
-                    if previous is not None:
-                        painter.drawLine(int(previous[0]), int(previous[1]), int(current[0]), int(current[1]))
-                    previous = current
-            painter.setPen(QPen(color, 2.5))
-            painter.drawLine(legend_x, plot.top() + 8, legend_x + 20, plot.top() + 8)
-            painter.setPen(QColor("#263746"))
-            painter.drawText(legend_x + 25, plot.top() + 12, name)
-            legend_x += 88 + min(80, len(name) * 8)
-
-        painter.setPen(QColor("#263746"))
-        painter.drawText(plot.left(), self.height() - 8, self.width() - 62, 18,
-                         Qt.AlignmentFlag.AlignHCenter, self.x_label)
-        painter.save()
-        painter.translate(13, plot.center().y())
-        painter.rotate(-90)
-        painter.drawText(-plot.height() / 2, 0, plot.height(), 18, Qt.AlignmentFlag.AlignHCenter, self.y_label)
-        painter.restore()
-        painter.end()
 
 
 class QualityPage(QWidget):
@@ -227,6 +70,7 @@ class QualityPage(QWidget):
         self._context_tables: dict[str, pd.DataFrame] = {}
         self._context_manifest: list[dict[str, Any]] = []
         self._last_outcome: Any = None
+        self._processing: Any = None
         self._parameter_error_name: str | None = None
         self.status = QLabel("质量统计和图表将在公共 pipeline 前检完成后显示；这里不会本地重算科学结果。", self)
         self.status.setWordWrap(True)
@@ -538,19 +382,17 @@ class QualityPage(QWidget):
             control.setEnabled(enabled)
 
     def _build_results(self) -> None:
-        self.signal_selector = QComboBox(self)
-        self.signal_selector.addItem("注视点 gaze", "gaze")
-        self.signal_selector.addItem("左瞳孔 pupil_left", "pupil_left")
-        self.signal_selector.addItem("右瞳孔 pupil_right", "pupil_right")
-        self.value_selector = QComboBox(self)
-        for label, value in (("gaze_x", "gaze_x"), ("gaze_y", "gaze_y"),
-                             ("pupil_left", "pupil_left"), ("pupil_right", "pupil_right")):
-            self.value_selector.addItem(label, value)
-        self.stream_selector = QComboBox(self)
-        self.stream_selector.addItem("尚未选择数据流", None)
-        self.raw_plot = _QcPlot("dt 分布（正向采样间隔）", self)
-        self.missing_plot = _QcPlot("有效性 / 缺失时间线", self)
-        self.signal_plot = _QcPlot("原始与预处理信号对照", self)
+        self.timeline = TimelineWidget(self)
+        self.timeline.setMinimumHeight(430)
+        # Keep the QualityPage stream selector API while using TimelineWidget's
+        # complete stable-key selector instead of a coarser subject/session filter.
+        self.stream_selector = self.timeline.stream_selector
+        self.signal_selector = self.timeline.signal_selector
+        self.timeline_status = QLabel("导入后可查看当前修订的原始信号；处理曲线和事件需匹配的后端结果。", self)
+        self.timeline_status.setWordWrap(True)
+        self.range_label = QLabel("尚未选择时间区间。", self)
+        self.locator_label = QLabel("诊断和事件定位会核对来源、分区、时间基与秒范围。", self)
+        self.locator_label.setWordWrap(True)
         self.quality_model = DataFrameTableModel(parent=self)
         self.quality_view = DataFrameTableView(self)
         self.quality_view.setModel(self.quality_model)
@@ -560,6 +402,12 @@ class QualityPage(QWidget):
         self.event_model = DataFrameTableModel(parent=self)
         self.event_view = DataFrameTableView(self)
         self.event_view.setModel(self.event_model)
+        self.diagnostic_model = DataFrameTableModel(parent=self)
+        self.diagnostic_view = DataFrameTableView(self)
+        self.diagnostic_view.setModel(self.diagnostic_model)
+        self._diagnostic_records = pd.DataFrame()
+        self.locate_button = QPushButton("定位选中记录", self)
+        self.locate_button.setEnabled(False)
         self.context_model = DataFrameTableModel(parent=self)
         self.context_view = DataFrameTableView(self)
         self.context_view.setModel(self.context_model)
@@ -571,18 +419,9 @@ class QualityPage(QWidget):
         overview_layout = QVBoxLayout(overview)
         overview_layout.addWidget(QLabel("每个 source/eye stream 的原始有效、插值、缺失与支持时长（来自后端 quality 表）", overview))
         overview_layout.addWidget(self.quality_view, 1)
-        selectors = QHBoxLayout()
-        selectors.addWidget(QLabel("数据流", overview))
-        selectors.addWidget(self.stream_selector)
-        selectors.addWidget(QLabel("时间线信号", overview))
-        selectors.addWidget(self.signal_selector)
-        selectors.addWidget(QLabel("前后对照字段", overview))
-        selectors.addWidget(self.value_selector)
-        selectors.addStretch(1)
-        overview_layout.addLayout(selectors)
-        overview_layout.addWidget(self.raw_plot, 1)
-        overview_layout.addWidget(self.missing_plot, 1)
-        overview_layout.addWidget(self.signal_plot, 1)
+        overview_layout.addWidget(self.timeline_status)
+        overview_layout.addWidget(self.range_label)
+        overview_layout.addWidget(self.timeline, 3)
 
         coverage = QWidget(self)
         coverage_layout = QVBoxLayout(coverage)
@@ -595,6 +434,14 @@ class QualityPage(QWidget):
         events_layout = QVBoxLayout(events)
         events_layout.addWidget(QLabel("事件覆盖来自真实 event_interval_audit 与 events；前检不会计算指标。", events))
         events_layout.addWidget(self.event_view, 1)
+        events_layout.addWidget(QLabel(
+            "实际事件与区间审核记录；双击一行或选中后定位。原因、状态、来源、分区和时间字段保留原值。", events
+        ))
+        events_layout.addWidget(self.diagnostic_view, 2)
+        location_row = QHBoxLayout()
+        location_row.addWidget(self.locator_label, 1)
+        location_row.addWidget(self.locate_button)
+        events_layout.addLayout(location_row)
 
         context = QWidget(self)
         context_layout = QVBoxLayout(context)
@@ -627,9 +474,12 @@ class QualityPage(QWidget):
                 control.valueChanged.connect(self._emit_configuration)
             else:
                 control.valueChanged.connect(self._emit_configuration)
-        self.signal_selector.currentIndexChanged.connect(self._refresh_plots)
-        self.value_selector.currentIndexChanged.connect(self._refresh_plots)
-        self.stream_selector.currentIndexChanged.connect(self._refresh_plots)
+        self.timeline.intervalSelected.connect(self._on_interval_selected)
+        self.timeline.timeRangeChanged.connect(self._on_time_range_changed)
+        self.timeline.diagnosticSelected.connect(self._on_timeline_diagnostic)
+        self.diagnostic_view.doubleClicked.connect(self._on_diagnostic_double_clicked)
+        self.locate_button.clicked.connect(self._locate_selected_diagnostic)
+        self.diagnostic_view.selectionModel().selectionChanged.connect(self._on_diagnostic_selection_changed)
 
     def _control_toggled(self, *_: Any) -> None:
         self._sync_control_enabled_states()
@@ -671,21 +521,16 @@ class QualityPage(QWidget):
     def set_dataset(self, revision: DatasetRevision | None) -> None:
         self._dataset_revision = revision
         self._dataset = revision.dataset_copy() if revision is not None else None
-        self.stream_selector.blockSignals(True)
-        self.stream_selector.clear()
-        self.stream_selector.addItem("尚未选择数据流", None)
-        if self._dataset is not None:
-            frame = self._dataset.signals
-            keys = [key for key in ("subject_id", "session_id", "interaction_id") if key in frame]
-            if keys:
-                for values in frame[keys].astype("string").fillna("未知").drop_duplicates().itertuples(index=False, name=None):
-                    value_tuple = tuple(str(value) for value in values)
-                    label = " / ".join(f"{key}={value}" for key, value in zip(keys, value_tuple))
-                    self.stream_selector.addItem(label, (tuple(keys), value_tuple))
-                if self.stream_selector.count() > 1:
-                    self.stream_selector.setCurrentIndex(1)
-        self.stream_selector.blockSignals(False)
-        self._refresh_plots()
+        self._last_outcome = None
+        self._processing = None
+        for model in (self.quality_model, self.coverage_model, self.event_model, self.overlap_model):
+            model.set_frame(pd.DataFrame())
+        self._set_diagnostic_records(pd.DataFrame(), pd.DataFrame())
+        self.locator_label.setText("诊断和事件定位会核对来源、分区、时间基与秒范围。")
+        self.range_label.setText("尚未选择时间区间。")
+        self.status.setText("数据修订已更改；旧处理结果和时间选择已清除，等待当前修订的后端结果。")
+        self._render_context()
+        self._refresh_timeline(preserve_stream=False)
 
     def set_context_tables(
         self,
@@ -700,114 +545,208 @@ class QualityPage(QWidget):
         self._context_manifest = [dict(item) for item in (source_manifest or []) if isinstance(item, Mapping)]
         self._render_context()
 
-    def set_outcome(self, outcome: PipelineOutcome | Any) -> None:
-        """Render the actual returned preflight/run payload; no local preflight is run here."""
-        self._last_outcome = outcome
+    def set_outcome(self, outcome: PipelineOutcome | Any) -> bool:
+        """Render only a result whose source samples match the current revision."""
         payload = getattr(outcome, "payload", outcome)
         processing = getattr(payload, "processing", None)
+        if self._dataset_revision is None or self._dataset is None:
+            self._clear_outcome("没有当前数据修订；返回结果未显示。")
+            return False
         if processing is None:
-            self.status.setText("返回内容不含后端 processing 结果；没有生成 QC 数值。")
-            return
+            self._clear_outcome("返回内容不含后端 processing 结果；处理曲线和事件不可用。")
+            return False
+        match = validate_outcome_revision(
+            self._dataset_revision, self._dataset.signals, processing, outcome,
+        )
+        if not match.matches:
+            self._clear_outcome("返回结果与当前数据修订无法确认匹配；未显示处理曲线和事件。 " + match.reason)
+            return False
+        self._last_outcome = outcome
+        self._processing = processing
         phase = getattr(outcome, "phase", None)
         phase_value = getattr(phase, "value", phase)
         backend_status = getattr(outcome, "backend_status", getattr(processing, "execution_status", "unknown"))
-        metric_flag = getattr(payload, "metadata", {}).get("metric_calculations_run", False)
+        metadata = getattr(payload, "metadata", {})
+        metric_flag = metadata.get("metric_calculations_run", False) if isinstance(metadata, Mapping) else False
         self.status.setText(
             f"真实后端 {phase_value or 'preflight'} · execution_status={backend_status} · "
             f"处理状态={getattr(processing, 'execution_status', 'unknown')} · 指标计算="
-            f"{'已运行' if metric_flag else '未运行'}；设备验证仍按原声明。"
+            f"{'已运行' if metric_flag else '未运行'}；设备验证仍需原始依据"
         )
         self.quality_model.set_frame(getattr(processing, "quality", None))
         self.coverage_model.set_frame(self._segment_coverage(processing))
         self.event_model.set_frame(self._event_coverage(processing))
+        self._set_diagnostic_records(
+            getattr(processing, "events", None), getattr(processing, "event_interval_audit", None),
+        )
+        self.locator_label.setText(
+            f"处理结果已与修订 {self._dataset_revision.revision_id} 的样本身份和源值匹配；"
+            "可双击事件表记录定位。"
+        )
         overlap = getattr(processing, "segment_overlap", None)
         self.overlap_model.set_frame(overlap if isinstance(overlap, pd.DataFrame) else None)
         self._render_context(processing)
-        self._refresh_plots(processing=processing)
+        self._refresh_timeline()
+        return True
 
-    def _selected_rows(self, frame: pd.DataFrame) -> pd.DataFrame:
-        if frame.empty:
-            return frame
-        selected = self.stream_selector.currentData()
-        if not selected:
-            return frame
-        stream_keys, values = selected
-        if not set(stream_keys).issubset(frame.columns):
-            return frame
-        mask = pd.Series(True, index=frame.index)
-        for key, value in zip(stream_keys, values):
-            current = frame[key].astype("string").fillna("未知")
-            mask &= current.eq(value)
-        return frame.loc[mask]
+    def _clear_outcome(self, message: str) -> None:
+        self._last_outcome = None
+        self._processing = None
+        for model in (self.quality_model, self.coverage_model, self.event_model, self.overlap_model):
+            model.set_frame(pd.DataFrame())
+        self._set_diagnostic_records(pd.DataFrame(), pd.DataFrame())
+        self._render_context()
+        self.status.setText(message)
+        self.locator_label.setText(message)
+        self.range_label.setText("尚未选择时间区间。")
+        self._refresh_timeline()
 
-    def _refresh_plots(self, *_: Any, processing: Any = None) -> None:
+    def _refresh_timeline(self, *, preserve_stream: bool = True) -> None:
         dataset = self._dataset
-        if dataset is None:
-            self.raw_plot.set_histogram([], note="导入数据后显示")
-            self.missing_plot.set_series([], x_label="time_s", y_label="有效状态", note="导入并运行前检后显示")
-            self.signal_plot.set_series([], x_label="time_s", y_label="值", note="导入并运行前检后显示")
-            return
-        raw = self._selected_rows(dataset.signals)
-        times = pd.to_numeric(raw.get("time_s", pd.Series(dtype=float)), errors="coerce").to_numpy(dtype=float, na_value=np.nan)
-        diffs = np.diff(times) if len(times) > 1 else np.array([], dtype=float)
-        self.raw_plot.set_histogram(diffs, note="从所选 source stream 的原始时间相邻差计算；倒序/重复行由后端策略报告。")
-        payload = getattr(self._last_outcome, "payload", self._last_outcome)
-        if processing is None:
-            processing = getattr(payload, "processing", None)
-        after = getattr(processing, "signals", pd.DataFrame()) if processing is not None else pd.DataFrame()
-        raw_sig = self.signal_selector.currentData() or "gaze"
-        if raw_sig in _SIGNAL_VALID:
-            raw_valid, value_columns, after_valid = _SIGNAL_VALID[raw_sig]
-            if raw_sig == "gaze":
-                if set(value_columns).issubset(raw.columns):
-                    coordinates = raw.loc[:, list(value_columns)].apply(pd.to_numeric, errors="coerce")
-                    present = pd.Series(np.isfinite(coordinates.to_numpy(dtype=float)).all(axis=1), index=raw.index)
-                else:
-                    present = pd.Series(False, index=raw.index)
-            else:
-                if value_columns[0] in raw:
-                    numeric = pd.to_numeric(raw[value_columns[0]], errors="coerce").to_numpy(dtype=float, na_value=np.nan)
-                    present = pd.Series(np.isfinite(numeric), index=raw.index)
-                else:
-                    present = pd.Series(False, index=raw.index)
-            if raw_valid in raw:
-                source_valid = raw[raw_valid]
-                is_invalid = source_valid.eq(False).fillna(False).to_numpy(dtype=bool)
-                is_valid = (source_valid.eq(True).fillna(False) & present).to_numpy(dtype=bool)
-                is_missing = ~present.to_numpy(dtype=bool)
-                state = np.full(len(raw), np.nan, dtype=float)
-                state[is_invalid | is_missing] = 0.0
-                state[is_valid] = 1.0
-            else:
-                # Data presence does not establish source validity. Missing values are
-                # visibly absent, while present values without a validity declaration
-                # remain unknown instead of being promoted to valid.
-                state = np.where(present, np.nan, 0.0)
-            timeline: list[tuple[str, Iterable[Any], Iterable[Any]]] = [("source", times, state)]
-            if isinstance(after, pd.DataFrame) and not after.empty and after_valid in after and "time_s" in after:
-                processed = self._selected_rows(after)
-                after_state = processed[after_valid].astype("boolean").to_numpy(dtype=float, na_value=np.nan)
-                timeline.append(("preflight", processed["time_s"], after_state))
-            self.missing_plot.set_series(timeline, x_label="time_s", y_label="有效(1) / 无效(0) / 未知(空)",
-                                         note="仅画图抽样；缺失值为 0，缺少有效性声明的数据保持未知空白。")
-        else:
-            self.missing_plot.set_series([], x_label="time_s", y_label="状态")
-        value = self.value_selector.currentData() or "gaze_x"
-        before_values = raw[value] if value in raw else pd.Series(dtype=float)
-        line_series: list[tuple[str, Iterable[Any], Iterable[Any]]] = [("source", times, before_values)]
-        if isinstance(after, pd.DataFrame) and not after.empty and value in after and "time_s" in after:
-            processed = self._selected_rows(after)
-            output_column = value
-            if value in {"pupil_left", "pupil_right"}:
-                baseline = f"{value}_baseline_corrected"
-                if baseline in processed and self._current_baseline_enabled():
-                    output_column = baseline
-            line_series.append(("after", processed["time_s"], processed[output_column]))
-        self.signal_plot.set_series(line_series, x_label="time_s", y_label=value,
-                                    note="原始与处理值来自同一数据修订 / 后端 outcome；图表最多抽样显示 1,800 点。")
+        raw = dataset.signals.copy(deep=True) if dataset is not None else pd.DataFrame()
+        processing = getattr(self, "_processing", None)
+        processed = getattr(processing, "signals", None) if processing is not None else None
+        events = getattr(processing, "events", None) if processing is not None else None
+        audit = getattr(processing, "event_interval_audit", None) if processing is not None else None
+        analysis_streams = getattr(processing, "analysis_streams", None) if processing is not None else None
+        context = {"analysis_streams": analysis_streams} if isinstance(analysis_streams, pd.DataFrame) else {}
+        previous_key = self.stream_selector.currentData() if preserve_stream else None
+        self.timeline.set_data(raw, processed, events, audit, context=context)
+        available_keys = [self.stream_selector.itemData(index) for index in range(self.stream_selector.count())]
+        if previous_key is not None and previous_key in available_keys:
+            self.stream_selector.setCurrentIndex(available_keys.index(previous_key))
+        elif len(available_keys) > 1:
+            # Multiple stable streams require a user choice; don't silently pick the first row.
+            self.stream_selector.setCurrentIndex(-1)
+        self.timeline.reset_view()
 
-    def _current_baseline_enabled(self) -> bool:
-        return self.use_baseline.isChecked()
+        revision_id = getattr(self._dataset_revision, "revision_id", "unknown")
+        if dataset is None:
+            self.timeline_status.setText("没有当前数据修订；时间线不可用。")
+        elif processing is None:
+            self.timeline_status.setText(
+                f"当前修订 {revision_id} · 仅显示原始信号；匹配的后端 processing 结果不可用。"
+            )
+        else:
+            process_status = getattr(processing, "execution_status", "unknown")
+            signal_state = "可用" if isinstance(processed, pd.DataFrame) else "不可用（未返回表）"
+            event_state = "可用" if isinstance(events, pd.DataFrame) else "不可用（未返回表）"
+            audit_state = "可用" if isinstance(audit, pd.DataFrame) else "不可用（未返回表）"
+            self.timeline_status.setText(
+                f"当前修订 {revision_id} · processing={process_status} · signals={signal_state} · "
+                f"events={event_state} · event_interval_audit={audit_state}。未返回或 partial 数据保持原状态。"
+            )
+    @staticmethod
+    def _diagnostic_frame(events: Any, audit: Any) -> pd.DataFrame:
+        frames: list[pd.DataFrame] = []
+        for kind, value in (("event", events), ("interval_audit", audit)):
+            if isinstance(value, pd.DataFrame) and not value.empty:
+                frame = value.copy(deep=True)
+                if "record_type" in frame:
+                    frame["record_type"] = kind
+                else:
+                    frame.insert(0, "record_type", kind)
+                frames.append(frame)
+        return pd.concat(frames, ignore_index=True, sort=False) if frames else pd.DataFrame()
+
+    def _set_diagnostic_records(self, events: Any, audit: Any) -> None:
+        self._diagnostic_records = self._diagnostic_frame(events, audit)
+        self.diagnostic_model.set_frame(self._diagnostic_records)
+        self.locate_button.setEnabled(False)
+
+    def _on_diagnostic_selection_changed(self, *_: Any) -> None:
+        self.locate_button.setEnabled(bool(self.diagnostic_view.selectionModel().selectedIndexes()))
+
+    def _selected_diagnostic_row(self) -> pd.Series | None:
+        indexes = self.diagnostic_view.selectionModel().selectedIndexes()
+        if not indexes:
+            return None
+        row = indexes[0].row()
+        frame = self.diagnostic_model.frame
+        return frame.iloc[row] if 0 <= row < len(frame) else None
+
+    def _locate_selected_diagnostic(self) -> None:
+        row = self._selected_diagnostic_row()
+        if row is not None:
+            self._locate_diagnostic_record(row.to_dict(), from_timeline=False)
+
+    def _on_diagnostic_double_clicked(self, index: Any) -> None:
+        frame = self.diagnostic_model.frame
+        if index.isValid() and 0 <= index.row() < len(frame):
+            self._locate_diagnostic_record(frame.iloc[index.row()].to_dict(), from_timeline=False)
+
+    def _on_timeline_diagnostic(self, payload: Any) -> None:
+        if not isinstance(payload, Mapping):
+            self.locator_label.setText("时间线返回了无法识别的定位信息。")
+            return
+        kind = str(payload.get("kind", "diagnostic"))
+        if kind == "signal_sample":
+            self.locator_label.setText(
+                f"信号样本定位 · time_s={payload.get('time_s')} · "
+                f"analysis_stream_id={payload.get('analysis_stream_id')}。样本值来自当前选中的稳定数据流。"
+            )
+            return
+        self._locate_diagnostic_record(payload, from_timeline=True)
+
+    def _locate_diagnostic_record(self, record: Mapping[str, Any], *, from_timeline: bool) -> None:
+        location = resolve_diagnostic_location(record, self.timeline.model.stream_options)
+        row = location.row
+        reason = row.get("reason_code", row.get("reason", row.get("decision", row.get("status", ""))))
+        prefix = f"{location.record_kind} · {reason} · " if reason else f"{location.record_kind} · "
+        if location.stream_key is None:
+            self.locator_label.setText(prefix + location.message)
+            return
+        if location.start_s is None or location.end_s is None:
+            self.locator_label.setText(prefix + location.message)
+            return
+        self.timeline.set_stream(location.stream_key)
+        if location.has_range:
+            self.timeline.set_time_range(location.start_s, location.end_s)
+            # Use TimelineWidget's normal selection path so shading and seconds stay in sync.
+            self.timeline._on_span_selected(location.start_s, location.end_s)
+            self.locator_label.setText(
+                prefix + f"已定位到 {location.start_s:.6g}–{location.end_s:.6g} 秒。"
+            )
+        elif location.has_point:
+            self.timeline.reset_view()
+            prepared = self.timeline.model.prepare(location.stream_key)
+            times = pd.to_numeric(prepared.raw.get("time_s", pd.Series(dtype=float)), errors="coerce").to_numpy(
+                dtype=float, na_value=np.nan,
+            )
+            finite = times[np.isfinite(times)]
+            pad = max(float(np.ptp(finite)) * 0.025, 0.01) if finite.size else 0.01
+            self.timeline.set_time_range(location.start_s - pad, location.start_s + pad)
+            self.range_label.setText(
+                f"已定位到 time_s={location.start_s:.6g} 秒；这是单点记录，持续时间不可用。"
+            )
+            self.locator_label.setText(prefix + location.message + "该点没有可选择的区间长度。")
+        if not from_timeline:
+            self.tabs.setCurrentIndex(0)
+        self._select_matching_diagnostic(record)
+
+    def _select_matching_diagnostic(self, payload: Mapping[str, Any]) -> None:
+        matches = [index for index, row in self._diagnostic_records.iterrows()
+                   if diagnostic_rows_match(row.to_dict(), payload)]
+        if len(matches) != 1:
+            if len(matches) > 1:
+                self.locator_label.setText(self.locator_label.text() + " 事件表存在多个同身份候选行，未自动选择。")
+            return
+        row_position = int(matches[0])
+        if not 0 <= row_position < self.diagnostic_model.rowCount():
+            return
+        index = self.diagnostic_model.index(row_position, 0)
+        self.diagnostic_view.selectionModel().select(
+            index,
+            QItemSelectionModel.SelectionFlag.ClearAndSelect | QItemSelectionModel.SelectionFlag.Rows,
+        )
+        self.diagnostic_view.setCurrentIndex(index)
+        self.diagnostic_view.scrollTo(index)
+
+    def _on_interval_selected(self, start: float, end: float) -> None:
+        self.range_label.setText(f"已选择 {start:.6g}–{end:.6g} 秒，持续 {end - start:.6g} 秒。")
+
+    def _on_time_range_changed(self, start: float, end: float) -> None:
+        self.range_label.setText(f"当前时间视窗 {start:.6g}–{end:.6g} 秒。")
 
     @staticmethod
     def _sequence(value: Any) -> list[Any]:

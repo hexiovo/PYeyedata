@@ -103,6 +103,8 @@ def package(output: Path) -> Path:
         archive.write(executable, "PYeyedata.exe")
         archive.write(ROOT / "docs" / "DEPLOYMENT.md", "DEPLOYMENT.md")
         archive.write(ROOT / "docs" / "RELEASE_NOTES.md", "RELEASE_NOTES.md")
+        archive.write(ROOT / "docs" / "COMMON_METRICS.md", "COMMON_METRICS.md")
+        archive.write(ROOT / "docs" / "WORKFLOW_ENHANCEMENTS.md", "WORKFLOW_ENHANCEMENTS.md")
         archive.write(info_path, "release-info.json")
         archive.write(native_path, "native-components.json")
         for path in sorted((ROOT / "pyeyedata" / "resources" / "licenses").rglob("*")):

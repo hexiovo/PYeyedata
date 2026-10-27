@@ -22,6 +22,10 @@ PYeyedata is a Windows desktop application for eye-tracking data analysis. The s
 退出时如有未归档的运行，可以返回、逐个归档后退出，或明确选择不归档。
 方案、结果导出和运行档案的区别，以及全部 10 类输入文件的填写实例，都在内置帮助和离线 PDF 手册里。
 
+0.9.6 包含导入映射预设、逐文件批量队列、质量时间轴定位、静态图片 AOI 编辑、运行比较和缺失原因导航。具体操作及限制见[工作流补充说明](docs/WORKFLOW_ENHANCEMENTS.md)；便携 ZIP 随附此说明。内置 41 页 PDF 内容仍为 0.9.3，新增功能请阅读补充说明。
+
+0.9.6 另新增 52 个常见眼动指标：事件分布统计、基于注视事件的 AOI 首次注视/时长、阅读时间与跳读/回视率，以及已观察试次/被试的 AOI 命中率。入口、阅读标注示例、分母与未知状态规则见[常见指标说明](docs/COMMON_METRICS.md)。原有 AOI 首次进入和访问指标保持原义。
+
 ## Build from source
 
 Use 64-bit CPython 3.12.1 or a later 3.12.x release on a Windows 10/11 x64 build machine. CPython 3.12.10 is the validated runtime. Version 3.12.0 is below the build minimum because a code-object replacement bug can break PyInstaller's frozen SciPy startup. Install the pinned environment from `requirements.txt`, then run the checked-in one-file build runner with a new output directory outside the repository:

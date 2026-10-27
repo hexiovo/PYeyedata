@@ -138,7 +138,8 @@ def create_build_manifest(project_root: Path) -> dict[str, Any]:
             "setup.cmd", "start.cmd", "release.cmd", "tools/manage.ps1",
             "tools/run_checks.py", "tools/release_windows.py",
             "README.md", "AGENTS.md", "CODEX_HANDOFF.md",
-            "docs/DEPLOYMENT.md", "docs/RELEASE_NOTES.md",
+            "docs/DEPLOYMENT.md", "docs/RELEASE_NOTES.md", "docs/WORKFLOW_ENHANCEMENTS.md",
+            "docs/COMMON_METRICS.md", "plans/common-eye-metrics.md",
             ".github/workflows/release.yml",
         )
     )

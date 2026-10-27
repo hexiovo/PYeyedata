@@ -152,6 +152,8 @@ def context_fields(kind: str) -> tuple[FieldSpec, ...]:
         ),
         "reading_annotations": (
             ("reading_scope_id", True, "阅读范围 ID"), ("stimulus_id", False, "刺激 ID"),
+            ("aoi_id", False, "阅读区域 AOI ID（计算必需）"),
+            ("reading_order", False, "阅读推进顺序（正整数，计算必需）"),
             ("line_id", False, "行 ID"), ("start_s", False, "起始时间"), ("end_s", False, "结束时间"),
             ("reading_direction", False, "阅读方向"),
         ),

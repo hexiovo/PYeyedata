@@ -199,7 +199,7 @@ def get_analysis_schema() -> dict[str, Any]:
             "analysis_unit_warning": "Statistical routes enforce explicit independent-unit and overlap dependencies.",
         },
         "context_tables": ["external_events", "target_movement_intervals", "eyelid_intervals"],
-        "individual_context_inputs": ["target_movement_intervals", "reference_fixations", "reference_trajectory"],
+        "individual_context_inputs": ["target_movement_intervals", "reference_fixations", "reference_trajectory", "reading_annotations"],
     }
 
 
@@ -824,6 +824,8 @@ def _prepare_preflight(
             "pipeline": PIPELINE_SCHEMA_VERSION,
             "event_partition_binding": _EVENT_PARTITION_BINDING_VERSION,
         })
+    if progress:
+        progress(0.0, "开始共享预处理与条件可用性检查")
     run_dataset = _dataset_for_run(dataset, config)
     external_events = config.context.get("external_events")
     if external_events is not None and not isinstance(external_events, pd.DataFrame):
@@ -844,8 +846,12 @@ def _prepare_preflight(
     )
     processing.events = _bind_single_partition_events(processing.events, processing.analysis_streams)
     if processing.execution_status == "cancelled":
+        if progress:
+            progress(0.36, "共享处理已取消，跳过条件可用性检查")
         availability = pd.DataFrame(columns=[*AVAILABILITY_COLUMNS, "module", "scope", "analysis_stream_id"])
     else:
+        if progress:
+            progress(0.36, "正在检查指标字段与分析条件可用性")
         from .aoi_geometry import AOIGeometryError
         try:
             availability = _preflight_availability(run_dataset, config, processing, cancel=cancel)
@@ -862,7 +868,13 @@ def _prepare_preflight(
             processing.audit = {**processing.audit, "execution_status": "cancelled"}
             availability = pd.DataFrame(columns=[*AVAILABILITY_COLUMNS, "module", "scope", "analysis_stream_id"])
     if progress:
-        progress(0.36, "共享处理与条件可用性前检完成")
+        if processing.execution_status == "complete":
+            message = "共享处理与条件可用性前检完成"
+        elif processing.execution_status == "cancelled":
+            message = "共享处理与条件可用性前检已取消"
+        else:
+            message = f"共享处理与条件可用性前检结束：{processing.execution_status}"
+        progress(0.36, message)
     return AnalysisPreflight(
         processing=processing,
         availability=availability,
@@ -1331,7 +1343,7 @@ def _run_analysis_impl(
                                       progress=_stage_progress(progress, 0.0, 0.35),
                                       **({"_cache_transaction": _cache_transaction} if _cache_transaction is not None else {}))
     except Exception as exc:
-        return _bundle_from_tables(
+        result = _bundle_from_tables(
             tables={"metrics": pd.DataFrame(columns=METRIC_COLUMNS)},
             metadata={"run_id": settings.run_id, "contract_version": CONTRACT_VERSION,
                       "execution_status": "failed", "failure_stage": "shared_processing",
@@ -1339,9 +1351,14 @@ def _run_analysis_impl(
                       "device_verified": False},
             logs=[f"shared_processing_failed:{type(exc).__name__}:{exc}"],
         )
+        if progress:
+            progress(1.0, "共享预处理失败；分析已结束")
+        return result
 
     processing = prepared.processing
     events = processing.events.copy(deep=True)
+    if progress:
+        progress(0.35, "正在整理共享处理与条件可用性结果")
     run_dataset = _dataset_for_run(dataset, settings)
     result_tables = _input_tables(run_dataset, settings)
     result_tables.update({
@@ -1357,6 +1374,8 @@ def _run_analysis_impl(
         "event_interval_audit": processing.event_interval_audit.copy(deep=True),
         "availability": prepared.availability.copy(deep=True),
     })
+    if progress:
+        progress(0.35, "共享处理与条件可用性结果已收集")
     logs = list(processing.logs)
     module_metadata: list[dict[str, Any]] = []
     collected: dict[str, list[pd.DataFrame]] = {}
@@ -1370,8 +1389,11 @@ def _run_analysis_impl(
                     "dataset_metadata": _json_safe(dataset.metadata), "config": _config_snapshot(settings),
                     "device_verified": False}
         if progress:
+            progress(0.35, "整理取消后保留的共享处理审计资料")
+        result = _bundle_from_tables(tables=result_tables, metadata=metadata, logs=logs)
+        if progress:
             progress(1.0, "分析已取消；保留共享处理产生的审计资料")
-        return _bundle_from_tables(tables=result_tables, metadata=metadata, logs=logs)
+        return result
 
     stream_ids = (
         processing.analysis_streams["analysis_stream_id"].dropna().astype(str).drop_duplicates().tolist()
@@ -1391,6 +1413,8 @@ def _run_analysis_impl(
     )
     grouped_individual = _individual_groups(selected_individual, get_individual_catalogue())
     if settings.run_individual:
+        if progress:
+            progress(0.36, "准备个体指标分析")
         work: list[tuple[str | None, pd.DataFrame, list[str]]] = [
             (stream_id, frame, grouped_individual["gaze"])
             for stream_id, frame in joined_streams.items() if grouped_individual["gaze"]
@@ -1407,6 +1431,9 @@ def _run_analysis_impl(
             if _cancelled(cancel):
                 run_status = "cancelled"
                 break
+            if progress:
+                phase_start = 0.36 + .12 * index / max(1, len(work))
+                progress(phase_start, f"准备个体指标：{stream_id or '全部数据'}")
             module_config = _module_config(run_dataset, settings, settings.individual,
                                            _event_stream(events, stream_id), stream_id=stream_id)
             module_config["metric_ids"] = metric_ids
@@ -1432,10 +1459,16 @@ def _run_analysis_impl(
                 break
             if status == "partial" and run_status == "complete":
                 run_status = "partial"
+        if progress:
+            progress(0.48, f"个体分析阶段结束：{run_status}")
     else:
         logs.append("individual_module_disabled")
+        if progress:
+            progress(0.48, "个体分析未启用，跳过该阶段")
 
     if run_status not in {"cancelled", "failed"} and settings.run_group:
+        if progress:
+            progress(0.52, "准备群体分析")
         group_catalogue = get_group_catalogue()
         selected_group = _catalogue_selection(group_catalogue, settings.group.get("metric_ids"), default_tiers={"R1"})
         comparison_signal = settings.group.get("comparison_signal")
@@ -1449,7 +1482,13 @@ def _run_analysis_impl(
                 break
             if "interaction_id" not in frame or frame["interaction_id"].isna().any():
                 logs.append(f"group_skipped_explicit_interaction_id_required:{stream_id or 'source'}")
+                if progress:
+                    phase_end = .52 + .10 * (index + 1) / max(1, len(group_work))
+                    progress(phase_end, f"群体分析跳过：缺少明确 interaction_id（{stream_id or '全部数据'}）")
                 continue
+            if progress:
+                phase_start = .52 + .10 * index / max(1, len(group_work))
+                progress(phase_start, f"准备群体指标：{stream_id or '全部数据'}")
             module_config = _module_config(run_dataset, settings, settings.group,
                                            _event_stream(events, stream_id), stream_id=stream_id)
             module_config["metric_ids"] = metric_ids
@@ -1475,10 +1514,16 @@ def _run_analysis_impl(
                 break
             if status == "partial" and run_status == "complete":
                 run_status = "partial"
+        if progress:
+            progress(.62, f"群体分析阶段结束：{run_status}")
     elif not settings.run_group:
         logs.append("group_module_disabled")
+        if run_status not in {"cancelled", "failed"} and progress:
+            progress(.62, "群体分析未启用，跳过该阶段")
 
     if run_status not in {"cancelled", "failed"} and settings.run_advanced:
+        if progress:
+            progress(.63, "准备高级眼动分析")
         requested_advanced = settings.advanced.get("metric_ids")
         advanced_selection = _catalogue_selection(list(ADVANCED_METHODS) + list(ADVANCED_CHILD_SPECS),
                                                   requested_advanced, default_tiers={"R1", "R2"})
@@ -1498,6 +1543,9 @@ def _run_analysis_impl(
             if _cancelled(cancel):
                 run_status = "cancelled"
                 break
+            if progress:
+                phase_start = .63 + .11 * index / max(1, len(advanced_work))
+                progress(phase_start, f"准备高级眼动指标：{stream_id or '全部数据'}")
             module_config = _module_config(run_dataset, settings, settings.advanced,
                                            _event_stream(events, stream_id), stream_id=stream_id)
             module_config["metric_ids"] = metric_ids
@@ -1527,10 +1575,16 @@ def _run_analysis_impl(
                 break
             if status == "partial" and run_status == "complete":
                 run_status = "partial"
+        if progress:
+            progress(.74, f"高级眼动分析阶段结束：{run_status}")
     elif not settings.run_advanced:
         logs.append("advanced_module_disabled")
+        if run_status not in {"cancelled", "failed"} and progress:
+            progress(.74, "高级眼动分析未启用，跳过该阶段")
 
     if run_status not in {"cancelled", "failed"}:
+        if progress:
+            progress(.76, "正在进行统计计算")
         combined_metrics = pd.concat(metric_frames, ignore_index=True, sort=False) if metric_frames else pd.DataFrame(columns=METRIC_COLUMNS)
         stats_design: DesignSpec | Mapping[str, Any] = (
             settings.statistics if settings.statistics is not None else DesignSpec()
@@ -1549,6 +1603,8 @@ def _run_analysis_impl(
                 design_supplied=settings.statistics is not None,
                 metrics=combined_metrics,
             )
+            if progress and status not in {"cancelled", "failed"}:
+                progress(.98, "统计计算结束，正在整理统计结果")
             module_metadata.append({
                 "module": "statistics",
                 **statistics_result.metadata,
@@ -1577,6 +1633,8 @@ def _run_analysis_impl(
                                     "design_supplied": settings.statistics is not None,
                                     "failure_type": type(exc).__name__, "failure_reason": str(exc)})
 
+    if progress:
+        progress(.99, "正在汇总个体、群体、高级与统计结果表")
     for name, frames in collected.items():
         if frames:
             result_tables[name] = pd.concat(frames, ignore_index=True, sort=False)
@@ -1588,7 +1646,7 @@ def _run_analysis_impl(
         result_tables["availability"] = pd.concat(availability_frames, ignore_index=True, sort=False)
 
     if progress:
-        progress(1.0, "分析完成" if run_status == "complete" else f"分析结束：{run_status}")
+        progress(.99, "分析结果表已整理，正在构建运行记录")
     metadata = {
         "run_id": settings.run_id,
         "contract_version": CONTRACT_VERSION,
@@ -1605,9 +1663,16 @@ def _run_analysis_impl(
     }
     if settings.statistics is None:
         metadata["statistics_design_status"] = "unknown_design_descriptive_only"
-    if progress and run_status == "failed":
-        progress(1.0, "分析失败；请检查日志和失败模块")
-    return _bundle_from_tables(tables=result_tables, metadata=metadata, logs=logs)
+    result = _bundle_from_tables(tables=result_tables, metadata=metadata, logs=logs)
+    if progress:
+        if run_status == "complete":
+            message = "分析完成"
+        elif run_status == "failed":
+            message = "分析失败；请检查日志和失败模块"
+        else:
+            message = f"分析结束：{run_status}"
+        progress(1.0, message)
+    return result
 
 
 def _config_snapshot(

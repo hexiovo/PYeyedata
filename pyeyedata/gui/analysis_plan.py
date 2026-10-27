@@ -110,9 +110,16 @@ def validate_plan(payload: Mapping[str, Any], schema: Mapping[str, Any]) -> dict
         raise ValueError("方案名称须为 1 至 200 个字符。")
     if not isinstance(raw["application_version"], str):
         raise ValueError("方案缺少保存时的软件版本。")
-    config = _object(raw["configuration"], "方案设置")
+    config = deepcopy(_object(raw["configuration"], "方案设置"))
     if set(config) != CONFIG_KEYS:
         raise ValueError("方案设置不完整或含有未知项目，未应用。")
+    from .method_registry import COMMON_PLAN_DEFAULTS
+    metric_settings = _object(config["metrics"], "方法参数")
+    individual_settings = _object(metric_settings.get("individual", {}), "个体方法参数")
+    for name, default in COMMON_PLAN_DEFAULTS.items():
+        individual_settings.setdefault(name, deepcopy(default))
+    metric_settings["individual"] = individual_settings
+    config["metrics"] = metric_settings
     # Enforce finite JSON even for callers that supply an in-memory object.
     _json(config)
     selection_values = _object(config["selection"], "指标选择")
