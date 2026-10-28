@@ -39,7 +39,12 @@ def verify_runtime_sources() -> dict[str, str]:
             expected = expected / "__init__.py"
         else:
             expected = expected.with_suffix(".py")
-        if not origin or Path(origin).resolve() != expected.resolve():
+        allowed_origins = {expected.resolve()}
+        if getattr(sys, "frozen", False):
+            # PyInstaller's PYZ finder can report compiled origins before a
+            # module is imported. Both forms must still match this exact tree.
+            allowed_origins.add(expected.with_suffix(".pyc").resolve())
+        if not origin or Path(origin).resolve() not in allowed_origins:
             raise RuntimeError(f"PYeyedata 模块来源冲突：{name}；实际={origin}；预期={expected}。请从同一完整程序目录启动。")
         locations = getattr(module, "__path__", None) if module is not None else getattr(spec, "submodule_search_locations", None)
         if locations is not None and [Path(p).resolve() for p in locations] != [expected.parent.resolve()]:
@@ -101,10 +106,10 @@ def prepare_gui_paths() -> Path:
     return root
 
 
-def show_startup_error(message: str) -> None:
+def show_startup_error(message: str, *, interactive: bool = True) -> None:
     """Show a readable startup failure even for a windowed executable."""
     title = f"{APP_NAME} 启动失败"
-    if os.name == "nt":
+    if interactive and os.name == "nt":
         try:
             ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)
             return

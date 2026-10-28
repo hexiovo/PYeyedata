@@ -53,13 +53,13 @@ def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments:
         if len(arguments) != 2 or arguments[0] != "--diagnostic-config":
-            show_startup_error("仅支持 --diagnostic-config <本地 JSON 配置文件>。")
+            show_startup_error("仅支持 --diagnostic-config <本地 JSON 配置文件>。", interactive=False)
             return 2
         try:
             prepare_gui_paths()
         except Exception as exc:
             _write_startup_exception_log(exc, context="diagnostic-bootstrap")
-            show_startup_error(str(exc))
+            show_startup_error(str(exc), interactive=False)
             return 2
         try:
             verify_runtime_sources()
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
             return int(run_diagnostic(arguments[1]))
         except Exception as exc:
             _write_startup_exception_log(exc, context="diagnostic-launch")
-            show_startup_error(f"{type(exc).__name__}: {exc}")
+            show_startup_error(f"{type(exc).__name__}: {exc}", interactive=False)
             return 2
 
     startup_indicator = None

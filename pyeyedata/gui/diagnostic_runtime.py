@@ -1,10 +1,11 @@
 """Bounded regressions for mixed runtime trees and truthful cache feedback."""
 from pathlib import Path
+import io
 import sys
 from types import ModuleType
 from unittest.mock import patch
 
-from pyeyedata_bootstrap import verify_runtime_sources
+from pyeyedata_bootstrap import show_startup_error, verify_runtime_sources
 from pyeyedata.execution_cache import ExecutionCache
 from .cache_feedback import cache_miss_feedback
 
@@ -33,6 +34,36 @@ def run_runtime_checks() -> dict:
             checks["mixed_package_search_path_rejected"] = False
     checks["original_tree_restored"] = verify_runtime_sources() == origins
 
+    bundle_root = Path(origins["pyeyedata"]).parent.parent
+    compiled_origin = str(bundle_root / "pyeyedata" / "__init__.pyc")
+    with (patch.object(sys, "frozen", True, create=True),
+          patch.object(sys, "_MEIPASS", str(bundle_root), create=True),
+          patch.object(package, "__file__", compiled_origin)):
+        checks["frozen_compiled_origin_accepted_in_exact_tree"] = (
+            verify_runtime_sources()["pyeyedata"] == compiled_origin
+        )
+        with patch.object(package, "__file__", str(bundle_root / "old-copy" / "__init__.pyc")):
+            try:
+                verify_runtime_sources()
+            except RuntimeError:
+                checks["frozen_compiled_origin_outside_tree_rejected"] = True
+            else:
+                checks["frozen_compiled_origin_outside_tree_rejected"] = False
+    if not getattr(sys, "frozen", False):
+        with patch.object(package, "__file__", compiled_origin):
+            try:
+                verify_runtime_sources()
+            except RuntimeError:
+                checks["source_does_not_accept_compiled_origin"] = True
+            else:
+                checks["source_does_not_accept_compiled_origin"] = False
+    captured = io.StringIO()
+    with patch("sys.stderr", captured), patch("pyeyedata_bootstrap.ctypes.windll.user32.MessageBoxW") as dialog:
+        show_startup_error("synthetic diagnostic startup failure", interactive=False)
+        checks["diagnostic_failure_is_noninteractive"] = (
+            not dialog.called and "synthetic diagnostic startup failure" in captured.getvalue()
+        )
+
     if not getattr(sys, "frozen", False):
         # Exercise both real launcher branches, not just the guard helper.
         # The frozen entry script is not an importable Python module; its
@@ -40,7 +71,7 @@ def run_runtime_checks() -> dict:
         import pyeyedata_launcher as launcher
         reports = []
         with (patch.dict(sys.modules, {fake.__name__: fake}),
-              patch.object(launcher, "show_startup_error", reports.append),
+              patch.object(launcher, "show_startup_error", lambda message, **kwargs: reports.append(message)),
               patch.object(launcher, "_write_startup_exception_log"),
               patch.object(launcher, "prepare_gui_paths"),
               patch("pyeyedata.gui.diagnostic.run_diagnostic") as dispatch,
