@@ -30,7 +30,7 @@ _GUI_NAMES = ("__init__.py", "app.py", "main_window.py", "bridge.py", "models.py
 REQUIRED_SOURCE_KEYS = frozenset(
     ["pyeyedata/" + name for name in _CORE_NAMES]
     + ["pyeyedata/gui/" + name for name in _GUI_NAMES]
-    + ["pyeyedata_launcher.py", "pyeyedata_bootstrap.py"]
+    + ["pyeyedata_launcher.py", "pyeyedata_bootstrap.py", "pyeyedata_startup.py"]
 )
 _REQUIRED_DISTRIBUTIONS = frozenset({
     "numpy", "pandas", "scipy", "matplotlib", "pyside6-essentials",

@@ -2,6 +2,8 @@
 
 先读 `CODEX_HANDOFF.md`、`version.md` 最新条目及 `docs/DEPLOYMENT.md`。
 
+项目维护 skill：`.agents/skills/pyeyedata-workflow/SKILL.md`，涉及入口、缓存、归档或发布时读取其对应规则。
+
 - 默认在 `master` 工作；先检查 `git status`，保留已有改动。未经要求不要提交输入数据、运行档案、虚拟环境或构建临时文件。
 - Windows 10/11 x64，CPython 3.12.1+（仅 3.12 系列），已验证 3.12.10。`setup.cmd` 准备依赖，`start.cmd` 启动；命令不依赖原主机磁盘目录。
 - 检查：`powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Check`。证据在输出提示的临时目录。已有固定诊断位于 `pyeyedata/gui/diagnostic.py`。

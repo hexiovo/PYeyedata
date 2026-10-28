@@ -6,8 +6,9 @@ import json
 import os
 import sys
 import traceback
+from typing import Any
 
-from pyeyedata_bootstrap import prepare_gui_paths, show_startup_error, user_data_root
+from pyeyedata_bootstrap import prepare_gui_paths, show_startup_error, user_data_root, verify_runtime_sources
 
 
 def _write_startup_exception_log(exc: Exception, *, context: str) -> None:
@@ -38,6 +39,16 @@ def _write_startup_exception_log(exc: Exception, *, context: str) -> None:
         pass
 
 
+def _close_startup_indicator(indicator: Any | None) -> None:
+    if indicator is None:
+        return
+    try:
+        indicator.close()
+    except Exception:
+        # Preserve the startup exception or normal exit result.
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments:
@@ -51,27 +62,47 @@ def main(argv: list[str] | None = None) -> int:
             show_startup_error(str(exc))
             return 2
         try:
+            verify_runtime_sources()
             from pyeyedata.gui.diagnostic import run_diagnostic
+            verify_runtime_sources()
             return int(run_diagnostic(arguments[1]))
         except Exception as exc:
             _write_startup_exception_log(exc, context="diagnostic-launch")
             show_startup_error(f"{type(exc).__name__}: {exc}")
             return 2
 
+    startup_indicator = None
+    try:
+        verify_runtime_sources()
+        from pyeyedata_startup import StartupIndicator
+
+        startup_indicator = StartupIndicator()
+    except Exception as exc:
+        _write_startup_exception_log(exc, context="gui-startup-indicator")
+        show_startup_error(f"{type(exc).__name__}: {exc}")
+        return 1
+
     try:
         prepare_gui_paths()
     except Exception as exc:
+        _close_startup_indicator(startup_indicator)
         _write_startup_exception_log(exc, context="gui-bootstrap")
         show_startup_error(str(exc))
         return 2
 
     try:
         from pyeyedata.gui.app import main as run_gui
-        return int(run_gui())
+
+        verify_runtime_sources()
+
+        return int(run_gui(on_ready=startup_indicator.close))
     except Exception as exc:
+        _close_startup_indicator(startup_indicator)
         _write_startup_exception_log(exc, context="gui-launch")
         show_startup_error(f"{type(exc).__name__}: {exc}")
         return 1
+    finally:
+        _close_startup_indicator(startup_indicator)
 
 
 if __name__ == "__main__":

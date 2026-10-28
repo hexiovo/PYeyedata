@@ -7,6 +7,7 @@ side effects while letting a frozen GUI set Matplotlib's cache first.
 from __future__ import annotations
 
 import ctypes
+import importlib.util
 import os
 from pathlib import Path
 import sys
@@ -16,6 +17,35 @@ from typing import Literal
 APP_NAME = "PYeyedata"
 PathKind = Literal["cache", "logs", "settings"]
 _PATH_KINDS = frozenset({"cache", "logs", "settings"})
+
+
+def verify_runtime_sources() -> dict[str, str]:
+    """Reject mixed application trees before running work; report actual origins.
+
+    Frozen Python origins refer to the bundle extraction directory, not to the
+    build machine's source checkout. This checks resolution, not file integrity.
+    """
+    root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)).resolve()
+    names = {"pyeyedata", "pyeyedata_bootstrap", "pyeyedata_startup"}
+    names.update(name for name in sys.modules
+                 if name == "pyeyedata" or name.startswith("pyeyedata."))
+    origins: dict[str, str] = {}
+    for name in sorted(names):
+        module = sys.modules.get(name)
+        spec = getattr(module, "__spec__", None) if module is not None else importlib.util.find_spec(name)
+        origin = getattr(module, "__file__", None) if module is not None else getattr(spec, "origin", None)
+        expected = root.joinpath(*name.split("."))
+        if name == "pyeyedata" or (module is not None and hasattr(module, "__path__")):
+            expected = expected / "__init__.py"
+        else:
+            expected = expected.with_suffix(".py")
+        if not origin or Path(origin).resolve() != expected.resolve():
+            raise RuntimeError(f"PYeyedata 模块来源冲突：{name}；实际={origin}；预期={expected}。请从同一完整程序目录启动。")
+        locations = getattr(module, "__path__", None) if module is not None else getattr(spec, "submodule_search_locations", None)
+        if locations is not None and [Path(p).resolve() for p in locations] != [expected.parent.resolve()]:
+            raise RuntimeError(f"PYeyedata 包搜索路径冲突：{name}；实际={list(locations)}；预期={expected.parent}")
+        origins[name] = str(Path(origin).resolve())
+    return origins
 
 
 def user_data_root() -> Path:

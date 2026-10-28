@@ -2,7 +2,7 @@
   "schema": "pyeyedata.license-source-manifest/v1",
   "application": {
     "name": "PYeyedata",
-    "version": "0.9.6",
+    "version": "0.9.7",
     "prd_version": "0.9"
   },
   "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 281-entry map and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",

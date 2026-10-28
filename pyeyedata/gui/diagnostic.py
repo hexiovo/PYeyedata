@@ -3315,11 +3315,24 @@ def run_diagnostic(config_path: str) -> int:
                     "task_manager": type(window.task_manager).__name__,
                     "operation_manager": type(window.operation_manager).__name__},
         })
+        from pyeyedata_bootstrap import verify_runtime_sources
+        evidence["process"]["module_origins"] = verify_runtime_sources()
         if config["scenario"] == "synthetic-pipeline":
             _run_pipeline_scenario(app, window, workspace, evidence)
         elif config["scenario"] == "open-archive":
             _run_open_archive(app, window, config, evidence)
         elif config["scenario"] == "reliability-smoke":
+            from .diagnostic_ui import run_ui_diagnostics
+
+            ui_evidence = run_ui_diagnostics(app, window)
+            if not ui_evidence.get("passed"):
+                raise RuntimeError(
+                    "main-window UI diagnostics failed: "
+                    + ", ".join(str(item) for item in ui_evidence.get("failures", ()))
+                )
+            evidence["main_window_ui_diagnostics"] = ui_evidence
+            from .diagnostic_runtime import run_runtime_checks
+            evidence["runtime_resolution"] = run_runtime_checks()
             _run_reliability_smoke(app, window, workspace, evidence)
             from .diagnostic_common_metrics import run_common_metric_checks
             evidence["common_eye_metrics"] = run_common_metric_checks(workspace / "common-eye-metrics")

@@ -132,7 +132,7 @@ def create_build_manifest(project_root: Path) -> dict[str, Any]:
     ]
     source_files.extend(
         project_root / relative for relative in (
-            "pyeyedata_launcher.py", "pyeyedata_bootstrap.py", "build_windows.py",
+            "pyeyedata_launcher.py", "pyeyedata_bootstrap.py", "pyeyedata_startup.py", "build_windows.py",
             "build_windows.spec", "build_manifest.py", "build_windows_version_resource.py",
             "requirements.txt", "version.md",
             "setup.cmd", "start.cmd", "release.cmd", "tools/manage.ps1",

@@ -49,6 +49,7 @@ from pyeyedata_bootstrap import user_directory
 
 from .bridge import MetricReusePlan, PipelineBridge, PipelineOutcome, PipelinePhase, PipelineStatus
 from .batch_queue import BatchQueue, BatchQueueError, BatchItem
+from .contextual_help import ContextualHelpController
 from .dependencies import DependencyTracker
 from .design_page import DesignPage
 from .group_page import GroupDesignPage
@@ -73,6 +74,7 @@ WORKFLOW_STEPS = (
     ("统计设计", "需要比较差异或关联时，说明分组、样本和结果类型。"),
     ("高级指标", "按研究需要选择方法，并补齐它要求的参考资料。"),
     ("结果与追溯", "查看每次分析的结果、原因和来源，保存运行档案。"),
+    ("运行日志", "在独立页面查看运行阶段、后台消息和错误详情；关键失败也会显示在状态区或错误提示中。"),
 )
 
 STEP_GUIDANCE = (
@@ -83,6 +85,7 @@ STEP_GUIDANCE = (
     "先做什么：只有需要比较差异或关联时才配置。\n\n例子：同一个人在 A、B 两条件各测一次，属于重复观测，不能当成两名互不相关的人。\n\n先声明独立样本、条件列和结果类型；不要为了通过检查随意勾选确认。",
     "先做什么：阅读所选方法的条件，按需要补充参考资料。\n\n例子：参考轨迹是已知目标位置随时间的变化，不是随便再导入一份眼动数据。\n\n上下文文件的“填写示例”说明每列和时间单位。只准备真正需要的资料。",
     "先看什么：看具体指标行的状态和原因。complete 表示该行完成，partial 表示部分完成，NA 表示暂无有效数值。\n\n例子：平均值已算出，但未设置的统计推断可能未计算。\n\n保存 .pyea 保留运行；导出表格用于查看；保存 .pyeplan 复用设置。",
+    "运行日志保留最近的运行阶段、后台消息和排错详情。日志只读；运行失败也会在状态区或错误提示中给出，不需要一直停留在此页。",
 )
 
 
@@ -728,6 +731,21 @@ class MainWindow(QMainWindow):
         self.table_view = DataFrameTableView(self.data_page)
         self.table_view.setModel(self._preview_model)
         self.table_view.setSortingEnabled(False)
+        self.table_view.setObjectName("datasetPreviewTable")
+        self.table_view.setMinimumHeight(110)
+        self.table_view.setMaximumHeight(240)
+        self.preview_box = QGroupBox("数据预览", self.data_page)
+        self.preview_box.setObjectName("datasetPreviewBox")
+        preview_layout = QVBoxLayout(self.preview_box)
+        self.preview_hint = QLabel(
+            "导入后显示本次数据修订的只读预览；此处不运行分析，也不代表设备已验证。",
+            self.preview_box,
+        )
+        self.preview_hint.setWordWrap(True)
+        preview_layout.addWidget(self.preview_hint)
+        preview_layout.addWidget(self.table_view, 1)
+        self.preview_box.setMaximumHeight(285)
+        self.preview_box.hide()
         self.import_page_scroll = QScrollArea(self.data_page)
         self.import_page_scroll.setObjectName("importPageScrollArea")
         self.import_page_scroll.setWidgetResizable(True)
@@ -739,9 +757,27 @@ class MainWindow(QMainWindow):
         data_layout.addWidget(self.page_description)
         data_layout.addWidget(self.dataset_summary)
         data_layout.addWidget(self.import_page_scroll, 3)
-        data_layout.addWidget(self.table_view, 2)
+        data_layout.addWidget(self.preview_box, 1)
+
+        self.logs_page = QWidget(self.pages)
+        self.logs_page.setObjectName("runLogPage")
+        log_layout = QVBoxLayout(self.logs_page)
+        self.log_title = QLabel("运行日志", self.logs_page)
+        self.log_title.setObjectName("pageTitle")
+        self.log_description = QLabel(WORKFLOW_STEPS[7][1], self.logs_page)
+        self.log_description.setWordWrap(True)
+        self.log_view = QPlainTextEdit(self.logs_page)
+        self.log_view.setObjectName("runLogView")
+        self.log_view.setReadOnly(True)
+        self.log_view.setMaximumBlockCount(3000)
+        self.log_view.setMinimumHeight(110)
+        self.log_view.setPlaceholderText("运行阶段、后端消息和错误详情会显示在这里。")
+        log_layout.addWidget(self.log_title)
+        log_layout.addWidget(self.log_description)
+        log_layout.addWidget(self.log_view, 1)
         for widget in (self.data_page, self.quality_page_scroll, self.metrics_page,
-                       self.group_page_scroll, self.design_page, self.results_page_scroll):
+                       self.group_page_scroll, self.design_page, self.results_page_scroll,
+                       self.logs_page):
             self.pages.addWidget(widget)
 
         help_panel = QGroupBox("参数说明", workspace)
@@ -760,6 +796,7 @@ class MainWindow(QMainWindow):
         workspace.setStretchFactor(2, 0)
         workspace.setSizes([175, 850, 250])
         outer.addWidget(workspace, 1)
+        self.contextual_help = ContextualHelpController(self.help_text, self.pages)
 
         task_row = QHBoxLayout()
         self.status_label = QLabel("未配置")
@@ -775,15 +812,6 @@ class MainWindow(QMainWindow):
         self.timing_label.setWordWrap(True)
         outer.addWidget(self.timing_label)
 
-        log_box = QGroupBox("运行日志", root)
-        log_layout = QVBoxLayout(log_box)
-        self.log_view = QPlainTextEdit(log_box)
-        self.log_view.setReadOnly(True)
-        self.log_view.setMaximumBlockCount(3000)
-        self.log_view.setMinimumHeight(110)
-        self.log_view.setPlaceholderText("运行阶段、后端消息和错误详情会显示在这里。")
-        log_layout.addWidget(self.log_view)
-        outer.addWidget(log_box)
         self.setCentralWidget(root)
 
         self.step_list.currentRowChanged.connect(self._on_step_changed)
@@ -1666,7 +1694,7 @@ class MainWindow(QMainWindow):
         self.results_page.set_history(self.session.history)
         self.results_page.show_record(record)
         self.step_list.setCurrentRow(6)
-        self.pages.setCurrentIndex(6)
+        self.pages.setCurrentWidget(self.results_page_scroll)
 
     def _batch_retry_items(self, item_ids: list[str]) -> None:
         if self._batch_queue is None or not item_ids:
@@ -2779,6 +2807,7 @@ class MainWindow(QMainWindow):
             f"源指纹 {revision.fingerprint[:12]} · 设备/生理验证状态按数据声明保留"
         )
         self._preview_model.set_frame(preview if preview is not None else dataset.signals.head(500))
+        self._refresh_preview_state("data")
         with self._suppress_configuration_events():
             self.quality_page.set_dataset(revision)
             self.quality_page.set_context_tables(self._context_tables, self.import_page.context_source_manifest())
@@ -2913,6 +2942,7 @@ class MainWindow(QMainWindow):
             return
         self.session.clear_dataset()
         self._preview_model.set_frame(None)
+        self._refresh_preview_state("empty")
         self.dataset_summary.setText("来源、映射或作用域配置已变化；请重新导入以生成新修订。")
         with self._suppress_configuration_events():
             self.quality_page.set_dataset(None)
@@ -2936,6 +2966,18 @@ class MainWindow(QMainWindow):
                 self.quality_page.set_context_tables(self._context_tables, self.import_page.context_source_manifest())
                 self.group_page.set_dataset(self.session.dataset_revision, events=self._context_tables.get("external_events"))
         self._invalidate_configuration("import context or metadata changed")
+
+    def _refresh_preview_state(self, kind: str) -> None:
+        has_rows = self._preview_model.rowCount() > 0
+        self.preview_box.setVisible(has_rows)
+        if not has_rows:
+            return
+        if kind == "metrics":
+            self.preview_box.setTitle("指标结果预览")
+            self.preview_hint.setText("显示当前运行返回的只读指标表；完整结果、状态和来源请查看“结果与追溯”。")
+        else:
+            self.preview_box.setTitle("数据预览")
+            self.preview_hint.setText("显示当前数据修订的导入预览；此处只读，不运行分析，也不代表设备已验证。")
 
     def _on_processing_configuration_changed(self, values: object) -> None:
         if self._suppress_config_updates:
@@ -2986,22 +3028,26 @@ class MainWindow(QMainWindow):
             self._suppress_config_updates = previous
 
     def _invalidate_configuration(self, reason: str) -> None:
+        had_preflight = getattr(self.metrics_page, "_availability", None) is not None
+        had_active_run = self.session.active_snapshot is not None
+        had_prepared_batch = self._batch_prepared and not self._batch_active
         if self._batch_prepared and not self._batch_active:
             self._invalidate_batch_preparation("分析配置已变化")
-        if self.session.active_snapshot is not None:
+        if had_active_run:
             self.session.invalidate_active_run()
         self.metrics_page.invalidate_preflight()
         if self.import_page.import_active:
             self.status_label.setText(self.import_page.pending_import_message)
         elif self.session.dataset_revision is not None:
             self.status_label.setText("配置已变化；当前结果保留为历史，需重新前检或运行")
-        self._append_log("配置失效：" + reason)
+            if had_preflight or had_active_run or had_prepared_batch:
+                self._append_log("配置已变化：原前检或运行结果状态已更新为历史；请重新前检或运行。")
         self._refresh_dependency_state()
 
     def _on_step_changed(self, row: int) -> None:
         if row < 0:
             return
-        page_index = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 2, 6: 5}.get(row, 0)
+        page_index = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 2, 6: 5, 7: 6}.get(row, 0)
         if row == 2:
             self.metrics_page.set_module("individual")
         elif row == 5:
@@ -3010,7 +3056,7 @@ class MainWindow(QMainWindow):
         name, description = WORKFLOW_STEPS[row]
         self.page_title.setText(name)
         self.page_description.setText(description)
-        self.help_text.setText(
+        self.contextual_help.set_default_text(
             STEP_GUIDANCE[row] + "\n\n按 F1 查看完整练习和文件示例。"
         )
 
@@ -3496,6 +3542,9 @@ class MainWindow(QMainWindow):
         if current:
             audit = outcome.metadata.get("execution_cache", {})
             if isinstance(audit, Mapping):
+                from .cache_feedback import cache_miss_feedback
+                for message in cache_miss_feedback(audit):
+                    self._append_log(message)
                 stages = audit.get("stages", [])
                 reused = list(dict.fromkeys(item.get("stage") for item in stages
                                            if isinstance(item, Mapping) and item.get("outcome") == "hit"))
@@ -3561,6 +3610,7 @@ class MainWindow(QMainWindow):
             with self._suppress_configuration_events():
                 metrics = outcome.payload.tables.get("metrics")
                 self._preview_model.set_frame(metrics)
+                self._refresh_preview_state("metrics")
                 if isinstance(metrics, pd.DataFrame):
                     self.design_page.set_metric_table(metrics)
                 active = snapshot or self.session.active_snapshot

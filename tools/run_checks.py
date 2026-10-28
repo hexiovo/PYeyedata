@@ -41,8 +41,16 @@ def run_checks(output: Path, executable: Path | None = None) -> dict:
             raise RuntimeError(f"{scenario} diagnostic failed: {evidence}")
         if record["process"]["frozen"] != (executable is not None):
             raise RuntimeError(f"{scenario} ran in the wrong source/frozen mode")
+        origins = record["process"].get("module_origins", {})
+        required = {"pyeyedata", "pyeyedata.pipeline", "pyeyedata.gui.main_window", "pyeyedata_bootstrap"}
+        if not required.issubset(origins):
+            raise RuntimeError(f"{scenario} lacks actual entry-point module origins")
+        expected_root = (Path(record["process"]["bundle_root"]) if executable else ROOT).resolve()
+        for name, origin in origins.items():
+            if not Path(origin).resolve().is_relative_to(expected_root):
+                raise RuntimeError(f"{scenario} loaded {name} outside {expected_root}: {origin}")
         results.append({"scenario": scenario, "status": "pass",
-                        "application": record["application"]})
+                        "application": record["application"], "module_origins": origins})
     summary = {"status": "pass", "mode": "frozen" if executable else "source",
                "display": "offscreen", "scenarios": results}
     (output / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -55,7 +63,12 @@ def main() -> None:
     parser.add_argument("--exe", type=Path)
     args = parser.parse_args()
     output = args.output or Path(tempfile.gettempdir()) / f"PYeyedata-check-{uuid.uuid4().hex}"
-    print(json.dumps(run_checks(output, args.exe), indent=2))
+    summary = run_checks(output, args.exe)
+    print(json.dumps({
+        **{key: value for key, value in summary.items() if key != "scenarios"},
+        "scenarios": [{key: value for key, value in item.items() if key != "module_origins"}
+                      for item in summary["scenarios"]],
+    }, indent=2))
     print(f"Evidence: {output.resolve()}")
 
 
