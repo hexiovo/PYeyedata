@@ -141,7 +141,7 @@
   },
   "application_version": "0.9.7",
   "licenses": {
-    "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 281-entry map and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
+    "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 283-entry map and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
     "source_manifest": "licenses/source-manifest.json",
     "material_sha256": {
       "licenses/APACHE-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
@@ -149,7 +149,7 @@
       "licenses/LGPL-3.0.txt": "e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118",
       "licenses/MICROSOFT-RUNTIME-NOTICE.md": "3dc3515ba805d24c7d4809bf6c79330edad647d817491b20ab0d1dfec8d82092",
       "licenses/PYINSTALLER-COPYING.txt": "dcf75fdb959db1e3b41c0f8505069d2ece781b5ec6b3d0a4d30975cfc6580245",
-      "licenses/QT-SOURCE-AND-REBUILD.md": "6794ea76c2fada1ad9961949895ed1fb7cf393decce4e3c2c2cb522d833d927b",
+      "licenses/QT-SOURCE-AND-REBUILD.md": "75a2445f05776e9d0d4d63b09a5e598c025e62b4a06db4852f7e7b1ff9a433ff",
       "licenses/THIRD-PARTY-NOTICES.md": "1c1b45ec2419665b16d05720bc23c4ed8d034ff29bb9b5a4a6dcdade9a453da8",
       "licenses/matplotlib/Matplotlib-3.9.4-LICENSE_BAKOMA.txt": "93adb2b53c02b7ce06b26bff41358c21248f42fed287b633ec4c31038377cdbb",
       "licenses/microsoft/latest-supported-vc-redist.txt": "a0adde39c349f87289b5092636a97bd9f8e0bebdd5947868c501e6b31edf181c",
@@ -230,8 +230,14 @@
       "licenses/qt/6.8.3/qtimageformats/libtiff/COPYRIGHT.txt": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7",
       "licenses/qt/6.8.3/qtimageformats/libwebp/COPYING.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
       "licenses/qt/6.8.3/qtimageformats/libwebp/PATENTS.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
-      "licenses/source-manifest.json": "edbd9aa9e14dc3e3198bf089c12c7b5e37ea3b866485f0f259b90d11c89b5efb",
-      "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"
+      "licenses/source-manifest.json": "208d3d82f37c6f8a80b443e759cbc6ca1d83c21f3be999ed1ffd9956424e6c5d",
+      "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
+      "licenses/qt/6.8.3/attributions/qtbase-testlib-catch2-qt_attribution.json": "9d48fa7b86e9b0412b699e0411815766914478592da5bbb614a45443c14504b0",
+      "licenses/qt/6.8.3/qtbase/testlib/catch2/LICENSE.txt": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+      "licenses/qt/6.8.3/attributions/qtbase-testlib-cycle-qt_attribution.json": "a3ff23399b7ece1a0c6a9696e4f8c671a495f92a74c9c53ea5b66f27bd56b056",
+      "licenses/qt/6.8.3/qtbase/testlib/cycle/LICENSE.txt": "cb5aedb296c5246d1f22e9099f925a65146f9f0d6b4eebba97fd27a6cdbbab2d",
+      "licenses/qt/6.8.3/attributions/qtbase-testlib-valgrind-qt_attribution.json": "9fab633484b2c78f3fdc789f0e9dfda493b425978d2164c06bf86f733bd878bf",
+      "licenses/qt/6.8.3/qtbase/testlib/valgrind/LICENSE.txt": "ec72eebd6326165156787da828caaa18386489387aefaa073c9bd40b8b2a400e"
     }
   },
   "beginner_help": {

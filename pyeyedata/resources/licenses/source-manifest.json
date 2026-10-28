@@ -5,7 +5,7 @@
     "version": "0.9.7",
     "prd_version": "0.9"
   },
-  "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 281-entry map and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
+  "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 283-entry map and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
   "license_texts": {
     "licenses/LGPL-3.0.txt": {
       "spdx": "LGPL-3.0-only",
@@ -87,7 +87,20 @@
     "candidate_runtime_version": "3.12.10",
     "candidate_runtime_evidence_path": "RUN/evidence/d-startup-python31210-runtime-validation-v1.json",
     "candidate_runtime_evidence_sha256": "ec321635694d03834385eba3ff01b2fd29acd361b17190b8653c36915b594079",
-    "final_analysis_required": true
+    "final_analysis_required": true,
+    "qt_test_addition": {
+      "reason": "The fixed UI diagnostic imports PySide6.QtTest; no distribution was upgraded.",
+      "analysis_evidence_path": "D:\\releases\\PYeyedata-0.9.7-20261028\\evidence\\d02-analysis-final-v1.json",
+      "analysis_evidence_sha256": "efc42bb9193dc77df0e6a33f8c4df81e5e29826d210b408cb8692f103bc24344",
+      "added_archive_paths": [
+        "PySide6/Qt6Test.dll",
+        "PySide6/QtTest.pyd"
+      ],
+      "total_native_components": 283,
+      "previous_rows_unchanged": true,
+      "source_tag": "qt/qtbase v6.8.3",
+      "notes": "Pinned Test source notices accompany the library; final rebuild inventory is reconciled by release tooling."
+    }
   },
   "package_groups": [
     {
@@ -624,7 +637,7 @@
       "distribution": "PySide6_Essentials",
       "version": "6.8.3",
       "analysis_record_counts": {
-        "binaries": 36,
+        "binaries": 38,
         "datas": 102,
         "pure": 1
       },
@@ -5338,9 +5351,60 @@
         "licenses/python/CPython-3.12.10-installed-LICENSE.txt"
       ],
       "source_path": "RUN/runtime/python31210-nuget/package/tools/DLLs/unicodedata.pyd"
+    },
+    {
+      "archive_path": "PySide6/Qt6Test.dll",
+      "typecode": "BINARY",
+      "source_group": "pinned Python distribution",
+      "distribution": "PySide6_Essentials",
+      "distribution_version": "6.8.3",
+      "source_sha256": "c82b0e0944f1eb2c56426f58233785266ccf4163768db55409f57d26dd82c233",
+      "source_size_bytes": 382088,
+      "license_materials": [
+        "licenses/GPL-3.0.txt",
+        "licenses/LGPL-3.0.txt",
+        "licenses/QT-SOURCE-AND-REBUILD.md",
+        "licenses/packages/pyside6-essentials-6.8.3/PySide6_Essentials-6.8.3.dist-info/LicenseRef-Qt-Commercial.txt",
+        "licenses/qt/6.8.3/qtbase/double-conversion/LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/freetype/BDF-LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/freetype/FTL.TXT",
+        "licenses/qt/6.8.3/qtbase/freetype/LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/freetype/PCF-LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/freetype/ZLIB-LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/harfbuzz-ng/COPYING.txt",
+        "licenses/qt/6.8.3/qtbase/libjpeg/COPYRIGHT.txt",
+        "licenses/qt/6.8.3/qtbase/libjpeg/LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/libjpeg/ijg-license.txt",
+        "licenses/qt/6.8.3/qtbase/libpng/LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/pcre2/LICENCE.md",
+        "licenses/qt/6.8.3/qtbase/pcre2/SLJIT-LICENCE.txt",
+        "licenses/qt/6.8.3/qtbase/zlib/LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/testlib/catch2/LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/testlib/cycle/LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/testlib/valgrind/LICENSE.txt"
+      ],
+      "qt_source_module": "qtbase-6.8.3",
+      "upstream_source_archive_url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtbase-everywhere-src-6.8.3.zip",
+      "upstream_source_archive_sha256": "992bf7766e214a341ef793eb3665fb784787d2fd666955f5f507f4c6f1f770dd",
+      "upstream_source_archive_verification": "official Qt SHA-256 sidecar fetched and checked; source archive not downloaded"
+    },
+    {
+      "archive_path": "PySide6/QtTest.pyd",
+      "typecode": "EXTENSION",
+      "source_group": "pinned Python distribution",
+      "distribution": "PySide6_Essentials",
+      "distribution_version": "6.8.3",
+      "source_sha256": "17ec839933175911d2cd54fe047ddde4e9ab4d8eea4ea3913c110ae3d14d2fd7",
+      "source_size_bytes": 204424,
+      "license_materials": [
+        "licenses/GPL-3.0.txt",
+        "licenses/LGPL-3.0.txt",
+        "licenses/QT-SOURCE-AND-REBUILD.md",
+        "licenses/packages/pyside6-essentials-6.8.3/PySide6_Essentials-6.8.3.dist-info/LicenseRef-Qt-Commercial.txt"
+      ]
     }
   ],
-  "native_component_count": 281,
+  "native_component_count": 283,
   "runtime_materials": {
     "cpython": {
       "version": "3.12.10",
@@ -6560,6 +6624,90 @@
       "license_id": "FTL",
       "license_group": "qtbase-6.8.3",
       "notes": "Full FreeType Project License selected by the Qt FreeType attribution record; root LICENSE.txt only describes the available choices."
+    },
+    {
+      "module": "catch2",
+      "repository": "qtbase",
+      "upstream_source_path": "src/testlib/3rdparty/catch2/qt_attribution.json",
+      "resource_path": "licenses/qt/6.8.3/attributions/qtbase-testlib-catch2-qt_attribution.json",
+      "source_url": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/src/testlib/3rdparty/catch2/qt_attribution.json",
+      "source_sha256": "9d48fa7b86e9b0412b699e0411815766914478592da5bbb614a45443c14504b0",
+      "resource_sha256": "9d48fa7b86e9b0412b699e0411815766914478592da5bbb614a45443c14504b0",
+      "source_size_bytes": 821,
+      "resource_size_bytes": 821,
+      "retrieved_status": 200,
+      "kind": "qt-attribution-json"
+    },
+    {
+      "module": "catch2",
+      "repository": "qtbase",
+      "upstream_source_path": "src/testlib/3rdparty/catch2/LICENSE.txt",
+      "resource_path": "licenses/qt/6.8.3/qtbase/testlib/catch2/LICENSE.txt",
+      "source_url": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/src/testlib/3rdparty/catch2/LICENSE.txt",
+      "source_sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+      "resource_sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
+      "source_size_bytes": 1338,
+      "resource_size_bytes": 1338,
+      "retrieved_status": 200,
+      "kind": "license-or-notice",
+      "license_id": "BSL-1.0",
+      "license_group": "qtbase-6.8.3"
+    },
+    {
+      "module": "cycle",
+      "repository": "qtbase",
+      "upstream_source_path": "src/testlib/3rdparty/cycle/qt_attribution.json",
+      "resource_path": "licenses/qt/6.8.3/attributions/qtbase-testlib-cycle-qt_attribution.json",
+      "source_url": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/src/testlib/3rdparty/cycle/qt_attribution.json",
+      "source_sha256": "a3ff23399b7ece1a0c6a9696e4f8c671a495f92a74c9c53ea5b66f27bd56b056",
+      "resource_sha256": "a3ff23399b7ece1a0c6a9696e4f8c671a495f92a74c9c53ea5b66f27bd56b056",
+      "source_size_bytes": 1176,
+      "resource_size_bytes": 1176,
+      "retrieved_status": 200,
+      "kind": "qt-attribution-json"
+    },
+    {
+      "module": "cycle",
+      "repository": "qtbase",
+      "upstream_source_path": "src/testlib/3rdparty/cycle/LICENSE.txt",
+      "resource_path": "licenses/qt/6.8.3/qtbase/testlib/cycle/LICENSE.txt",
+      "source_url": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/src/testlib/3rdparty/cycle/LICENSE.txt",
+      "source_sha256": "cb5aedb296c5246d1f22e9099f925a65146f9f0d6b4eebba97fd27a6cdbbab2d",
+      "resource_sha256": "cb5aedb296c5246d1f22e9099f925a65146f9f0d6b4eebba97fd27a6cdbbab2d",
+      "source_size_bytes": 1023,
+      "resource_size_bytes": 1023,
+      "retrieved_status": 200,
+      "kind": "license-or-notice",
+      "license_id": "MIT",
+      "license_group": "qtbase-6.8.3"
+    },
+    {
+      "module": "valgrind",
+      "repository": "qtbase",
+      "upstream_source_path": "src/testlib/3rdparty/valgrind/qt_attribution.json",
+      "resource_path": "licenses/qt/6.8.3/attributions/qtbase-testlib-valgrind-qt_attribution.json",
+      "source_url": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/src/testlib/3rdparty/valgrind/qt_attribution.json",
+      "source_sha256": "9fab633484b2c78f3fdc789f0e9dfda493b425978d2164c06bf86f733bd878bf",
+      "resource_sha256": "9fab633484b2c78f3fdc789f0e9dfda493b425978d2164c06bf86f733bd878bf",
+      "source_size_bytes": 979,
+      "resource_size_bytes": 979,
+      "retrieved_status": 200,
+      "kind": "qt-attribution-json"
+    },
+    {
+      "module": "valgrind",
+      "repository": "qtbase",
+      "upstream_source_path": "src/testlib/3rdparty/valgrind/LICENSE.txt",
+      "resource_path": "licenses/qt/6.8.3/qtbase/testlib/valgrind/LICENSE.txt",
+      "source_url": "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/src/testlib/3rdparty/valgrind/LICENSE.txt",
+      "source_sha256": "ec72eebd6326165156787da828caaa18386489387aefaa073c9bd40b8b2a400e",
+      "resource_sha256": "ec72eebd6326165156787da828caaa18386489387aefaa073c9bd40b8b2a400e",
+      "source_size_bytes": 1667,
+      "resource_size_bytes": 1667,
+      "retrieved_status": 200,
+      "kind": "license-or-notice",
+      "license_id": "BSD-4-Clause",
+      "license_group": "qtbase-6.8.3"
     }
   ]
 }
