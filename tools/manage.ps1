@@ -15,12 +15,12 @@ $venvPython = Join-Path $projectRoot '.venv\Scripts\python.exe'
 function Invoke-Checked {
     param([string]$Program, [string[]]$Arguments)
     & $Program @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "$Program failed (exit $LASTEXITCODE)." }
+    if ($LASTEXITCODE -ne 0) { throw "命令执行失败（退出码 $LASTEXITCODE）：$Program" }
 }
 
 function Assert-Python {
     param([string]$Program, [string[]]$Prefix = @())
-    $check = "import sys,struct; assert sys.platform == 'win32' and sys.version_info[:2] == (3,12) and sys.version_info >= (3,12,1) and struct.calcsize('P') == 8, 'Requires Windows x64 CPython 3.12.1+ (3.12 series)'; print(sys.executable); print(sys.version)"
+    $check = "import sys,struct; assert sys.platform == 'win32' and sys.version_info[:2] == (3,12) and sys.version_info >= (3,12,1) and struct.calcsize('P') == 8, '需要 Windows x64 CPython 3.12.1 或更高的 3.12.x 版本'; print(sys.executable); print(sys.version)"
     Invoke-Checked -Program $Program -Arguments ($Prefix + @('-c', $check))
 }
 
@@ -35,14 +35,14 @@ try {
                 $pythonPrefix = @('-3.12')
             }
             elseif (Get-Command python -ErrorAction SilentlyContinue) { $basePython = 'python' }
-            else { throw 'Install Windows x64 Python 3.12 from https://www.python.org/downloads/windows/ then rerun setup.cmd.' }
+            else { throw '未找到 Python。请安装 Windows x64 CPython 3.12（最低 3.12.1），然后重新运行 setup.cmd：https://www.python.org/downloads/windows/' }
             Assert-Python -Program $basePython -Prefix $pythonPrefix
             Invoke-Checked -Program $basePython -Arguments ($pythonPrefix + @('-m', 'venv', (Join-Path $projectRoot '.venv')))
         }
         Assert-Python -Program $venvPython
         Invoke-Checked -Program $venvPython -Arguments @('-m', 'pip', 'install', '-r', (Join-Path $projectRoot 'requirements.txt'))
         Invoke-Checked -Program $venvPython -Arguments @('-m', 'pip', 'check')
-        Write-Host 'Environment ready. Run start.cmd to launch; release.cmd to build a release.'
+        Write-Host '环境准备完成。运行 start.cmd 启动程序；运行 release.cmd 检查并构建发布包。'
     }
     else { Assert-Python -Program $venvPython }
 

@@ -1,6 +1,6 @@
 # PYeyedata 项目现状与接手指南
 
-更新：2026-10-31；应用版本 **0.9.10**，PRD 0.9，数据契约 1.3.0。新版本增加设备导出映射模板、下拉列表尺寸修复及环境检查入口；0.9.8 启动画面、统计预设和可选瞳孔预处理仍包含在内。本次构建检查以输出目录记录为准；本次完整 EXE 构建、源码/冻结诊断、原生依赖核对和精确提交以输出目录的 `release-info.json` 为准。默认分支 `master`。本次只作本机交付，远端发布状态另行核实。
+更新：2026-10-31；应用版本 **1.0.0**，PRD 0.9，数据契约 1.3.0。此版本随程序发布 `pyeyedata-study-config` 实验配置 skill、零基础主试快速上手和更新后的部署说明；应用导入模板、环境检查、启动提示、统计预设及可选瞳孔处理功能继续保留。完整 EXE 构建、源码/冻结诊断、原生依赖核对、精确提交、发布资产和哈希以本次输出的 `release-info.json` 与 `SHA256SUMS.txt` 为准。默认分支 `master`；GitHub Release 状态以远端页面为准。
 
 ## 给另一台主机的 Codex
 
@@ -19,6 +19,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Che
 
 `setup.cmd -Python "C:\path\to\python.exe"` 可以明确选择解释器。依赖在 `requirements.txt` 精确锁定；现有完整环境通过 build manifest 检查，不要随意升级科学依赖。当前没有常规 `tests/` 测试套件；可复用检查从产品自身固定诊断运行，历史外置测试不能当作仓库可重放的测试。
 
+## 1.0.0 研究配置 skill 与便携发布
+
+- 发布包含完整 `pyeyedata-study-config` 目录版和可单独附给 AI 的单文件 Markdown 版，便携 ZIP、源码 ZIP 和独立资产均纳入清单/校验。
+- 主试下载、校验、解压和练习步骤见 `docs/QUICKSTART.md`；用户部署、源码运行和本地/远端发布见 `docs/DEPLOYMENT.md`。Skill 只生成可追溯研究配置，不导入真实用户数据、不运行分析，也不承诺任意 AI 都能直接执行。
+- 应用版本为 1.0.0；PRD 0.9、数据契约 1.3.0、运行依赖、科学算法、`.pyea` 和 `.pyeplan` 契约保持不变。图解手册内容版本保持 0.9.3。
+- 最终构建与校验事实以输出目录中的 `release-info.json`、`SHA256SUMS.txt` 和日志为准。合成检查不代表真实设备或干净主机验收。
+
 ## 0.9.10 导入模板与环境检查
 
 - 内置 EyeLink Data Viewer 左眼/右眼及 Tobii Pro Lab 两种表头模板，支持 TSV/表格 TXT；仍需核对实际列、时间单位和眼别，不声明真实设备验证。批量使用前保存实际映射。
@@ -36,7 +43,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Che
 - 单文件启动在 PyInstaller bootloader 阶段显示静态“正在启动，请稍候…”画面；Qt 主窗口可见后关闭，启动异常也会先清理画面。CPython 3.12.10 / PyInstaller 6.11.1 控制 PATH harness 的 success 和注入失败分支均已验证；这不是完整产品 EXE 构建，也不表示解压耗时消失。
 - 统计设计页增加 10 个常见预设和简单 / 高级字段视图。预设提供明确标注、可编辑的连续结果起点，但不会从数据推断变量类型；独立两组与多组按过滤后实际水平路由。预设不会自动确认独立性、填写研究依据、猜团队 ID 或绩效连接。细节见 [`docs/STATISTICS_PRESETS.md`](docs/STATISTICS_PRESETS.md)。
 - 质量页增加可选瞳孔速度 MAD、眨眼 / 跟踪丢失边界 padding 和 PCHIP 插值；均默认关闭，启用插值后默认线性。原始值和来源有效性保留，派生值、状态和逐行来源可审计。细节与最新论文边界见 [`docs/PREPROCESSING_OPTIONS.md`](docs/PREPROCESSING_OPTIONS.md)。
-- 便携 ZIP 清单包含上述两份指南；资源索引和许可证来源清单已更新到启动图与 Splash 原生依赖。三项源码固定诊断均通过，但证据合并了不同运行：合成流程结果复用自 Check2，可靠性与可用性来自之后的定向重跑。本次完整产品冻结检查与原生组件最终核对由 release.cmd 执行；事实来源是产物中的 release-info.json。此前 HexiPlan 源码任务已完成，不依赖外部 run 目录才能启动或构建。
+- 便携 ZIP 清单包含上述两份指南；资源索引和许可证来源清单已更新到启动图与 Splash 原生依赖。三项源码固定诊断均通过，但证据合并了不同运行：合成流程结果复用自 Check2，可靠性与可用性来自之后的定向重跑。本次完整产品冻结检查与原生组件最终核对由 release.cmd 执行；事实来源是产物中的 release-info.json。启动和构建不依赖外部审计目录。
 
 ## 现有功能和入口
 
@@ -85,13 +92,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Che
 
 ## 验证、发布和当前局限
 
-`tools/run_checks.py` 在独立进程运行 `synthetic-pipeline`、`reliability-smoke`、`usability-smoke`，覆盖导入/计算/导出/档案、方案和退出等既有断言。`release.cmd` 对源码和最终 EXE 各运行三项，校验 PE 版本、内嵌源/资源哈希，生成 EXE、便携 ZIP、精确提交源码 ZIP、`release-info.json` 和 `SHA256SUMS.txt`。详见 `docs/DEPLOYMENT.md`。
+`tools/run_checks.py` 在独立进程运行 `synthetic-pipeline`、`reliability-smoke`、`usability-smoke`，覆盖导入/计算/导出/档案、方案和退出等既有断言。`release.cmd` 对源码和最终 EXE 各运行三项，校验 PE 版本、内嵌源/资源哈希，生成 EXE、便携 ZIP、精确提交源码 ZIP、skill 目录 ZIP/单文件 Markdown、`release-info.json`、`native-components.json` 和 `SHA256SUMS.txt`。详见 `docs/DEPLOYMENT.md`。
 
 Release 的 `release-info.json` 是本次构建的提交 SHA、实际校验结果、环境、EXE 哈希与限制的事实来源；GitHub Release 是否已发布以远端页面为准。构建前先提交所有修改，包括版本记录；构建后不要再修改已哈希输入来追记结果，否则源码会与 EXE 不符。
 
 固定诊断使用合成数据和 Qt offscreen，**尚未声明真实设备验证、干净新主机验收、原生多显示器/DPI 覆盖**。六项增强与新指标已纳入 0.9.6；具体入口、当前限制与版本范围见 `version.md` 最新条目和两份补充说明（便携 ZIP 同附）。无代码签名证书。后续改动要按影响补针对性验证，不能从 smoke 推断全部科学方法均独立验证过。
 
-旧 `version.md` 含原机器 E:/H:/F: 审计路径和阶段性 pending 记录，按日期阅读，不能将早期记录当作最新结论。这些目录不随仓库转移，构建和普通开发不依赖它们。`plans/portable-release.md` 记录本次部署改造方案；没有隐藏的外部接手任务清单。
+旧 `version.md` 含历史审计路径和阶段性 pending 记录，按日期阅读，不能将早期记录当作最新结论。旧审计目录不随仓库转移，构建和普通开发不依赖它们。当前操作与发布契约以 `docs/DEPLOYMENT.md`、`build_manifest.py` 和 `tools/release_windows.py` 为准；不依赖已删除的阶段计划文件。
 
 2026-10-28 入口与复用审查：项目专用维护 skill 位于 `.agents/skills/pyeyedata-workflow/SKILL.md`。launcher 在任务开始前核对实际模块来源，固定诊断和检查汇总保存 `process.module_origins`；旧目录模块或混合包搜索路径会被拒绝。新增启动模块已加入构建来源哈希。会话缓存日志显示实际未复用原因；当前没有跨启动自动 checkpoint 接续，不能将 `.pyea` 或 `.pyeplan` 视为该能力。此轮三项源码 Check 已通过；没有构建或验证新的冻结 EXE。
 

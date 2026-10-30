@@ -1,68 +1,69 @@
-# 下载、部署与开发
+# 下载、部署与发布
 
-## 直接使用：不安装 Python
+## 普通使用：下载后解压运行
 
-打开 [最新 Release](https://github.com/hexiovo/PYeyedata/releases/latest)，下载 `PYeyedata-0.9.10-windows-x64.zip`，解压后双击 `PYeyedata.exe`。也可直接下载同版本的 `windows-x64.exe` 单文件运行。系统要求 Windows 10/11 x64，无需管理员权限、Python、Qt 安装或额外服务。首次启动需解压内置运行库，请留出临时磁盘空间。
+打开[最新版本下载页](https://github.com/hexiovo/PYeyedata/releases/latest)，下载 `PYeyedata-1.0.0-windows-x64.zip`。先完整解压，再运行目录中的 `PYeyedata.exe`。适用于 Windows 10/11 x64；无需安装 Python、Qt、数据库或服务。首次启动会将运行环境解压到临时目录，请预留磁盘空间。不要在压缩包预览窗口内运行。
 
-程序目前没有代码签名；若系统提示来源，先确认来自上述仓库并核对 `SHA256SUMS.txt`。PowerShell 校验下载文件：
-
-```powershell
-Get-FileHash .\PYeyedata-0.9.10-windows-x64.zip -Algorithm SHA256
-```
-
-将哈希与同一 Release 的 `SHA256SUMS.txt` 对应行比较。不要在 ZIP 压缩窗口中直接运行。按 F1 或工具栏“全流程图解手册（PDF）”开始；可从帮助菜单导出练习与模板。应用 0.9.10 随附指南内容版本 0.9.3。
-
-升级时解压新版本到新目录并运行。配置、缓存、日志在 `%LOCALAPPDATA%\PYeyedata\`；输入、导出、`.pyea` 档案和 `.pyeplan` 方案仍在自己保存的位置。删除旧 EXE 不会自动删除用户数据。复制程序到另一台主机不会自动带走这些数据，所需档案请自行复制。
-
-## 启动画面
-
-由本仓库构建的单文件 EXE 会在 PyInstaller 启动器解压内置运行库时显示“正在启动，请稍候…”画面，随后才开始 Python 启动。主窗口可见后，启动器自动关闭该画面；启动失败时也会先关闭，再显示错误信息。源码运行继续使用 Qt 启动指示器。启动画面改善首次反馈，不会缩短运行库解压或应用模块加载所需时间。
-
-## 开发主机：三条入口
-
-源码新增“环境检查与依赖安装”入口，可从工具栏或“帮助”菜单打开。窗口检查 Python 3.12 x64、`requirements.txt` 中的精确版本、关键科学/界面/导出库的实际导入，以及 `pip check` 的依赖关系，并显示当前解释器位置。环境完整时安装按钮禁用；有异常时可点击“一键安装 / 修复依赖”，按项目锁定清单安装，导入失败的包追加相同精确版本的重装，最后自动重新检查。下载需要网络，输出日志可直接在窗口查看；支持停止操作，停止或失败不表示环境已修复。
-
-安装只作用于当前项目 `.venv`，不向系统 Python 或 EXE 解压目录安装。安装后应关闭并通过 `start.cmd` 重启，当前进程已加载的包不会自动替换。Windows 如果拒绝替换正在使用的 DLL，请退出程序后运行 `setup.cmd`，再启动检查；若缺少 Qt 等启动必需包而无法打开窗口，也使用 `setup.cmd` 修复。任务运行期间打开窗口可检查，安装需等待任务结束后重新打开窗口。该检查不验证真实设备或用户分析数据是否齐全。
-
-EXE 模式按内嵌构建清单检查关键运行依赖及可取得的实际版本，不要求用户安装开发/打包工具，也不启动 pip；缺失版本元数据且模块未提供版本时显示“无法确认”，不会强行判为通过。内置依赖异常时重新获取完整发布包。
-
-安装 **Windows x64 CPython 3.12.1 或以上的 3.12 系列**（推荐已验证的 3.12.10）与 Git。3.12.0、3.13/3.14 和 32 位 Python 不支持本构建配方。克隆仓库后：
+同一 Release 还提供独立 EXE、源码 ZIP、研究配置 skill 目录 ZIP、完整内嵌指引的单文件 Markdown、`release-info.json`、`native-components.json` 和 `SHA256SUMS.txt`。便携 ZIP 内附快速上手、部署/版本说明、预处理/指标文档、研究配置 skill 和第三方许可证。应用未进行代码签名；下载后请用 `SHA256SUMS.txt` 核对文件：
 
 ```powershell
-.\setup.cmd    # 创建本地 .venv，安装 requirements.txt 精确版本，pip check
-.\start.cmd    # 启动；缺少 .venv 时自动准备环境
-.\release.cmd  # 先提交全部修改；检查、构建、检查 EXE、打包
+Get-FileHash .\PYeyedata-1.0.0-windows-x64.zip -Algorithm SHA256
 ```
 
-首次准备需要网络获取依赖，不修改系统 Python 环境。Python 未安装时脚本会提示安装地址。可用 `setup.cmd -Python "C:\Python312\python.exe"` 明确解释器。每台主机创建自己的 `.venv`，不要复制另一台主机的虚拟环境。更换依赖后重新运行 `setup.cmd`。
+将输出与同一 Release 的 `SHA256SUMS.txt` 中 ZIP 对应行比较。按 F1 或选择**帮助 → 新手入门与文件示例**开始；也可从帮助菜单导出练习数据和模板。随附中文图解手册内容版本仍为 0.9.3。
 
-只检查源码（不打包）或指定发布输出目录：
+升级时将新版本解压到新文件夹再启动。配置、缓存和日志位于 `%LOCALAPPDATA%\PYeyedata\`；输入数据、导出、`.pyea` 档案和 `.pyeplan` 方案仍在原保存位置。删除旧程序文件不会自动删除用户数据；复制程序到另一台电脑也不会自动搬移数据。
+
+## 开发环境
+
+开发机需要 Windows x64 CPython 3.12.1 或更高的 3.12.x 版本（已验证 3.12.10）和 Git。3.12.0、3.13/3.14 与 32 位 Python 不符合当前构建配方。克隆仓库后，在项目根目录运行：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Check
-.\release.cmd -Output "D:\releases\PYeyedata-0.9.10"
+.\setup.cmd     # 创建本机 .venv，安装 requirements.txt 锁定版本并运行 pip check
+.\start.cmd     # 启动程序；若环境尚未准备，会先进行准备
 ```
 
-发布目录必须是源码目录以外的**全新目录**，默认使用系统临时目录并打印位置。打包时需 Git 和干净提交；下载的 GitHub source.zip 可启动开发，但正式打包应使用 Git 克隆。临时诊断数据和构建文件保留在输出目录供排错，上传仅用其中 `assets/`。不要在构建过程中修改源码或版本记录。
+首次安装依赖需要网络，只作用于当前项目 `.venv`，不修改系统 Python。可用 `setup.cmd -Python "C:\path\to\python.exe"` 指定解释器。每台电脑单独创建 `.venv`，不要复制其他电脑的虚拟环境。更换依赖后重新运行 `setup.cmd`。
 
-## 发布维护
+源码版可通过工具栏或**帮助**菜单打开“环境检查与依赖安装”。窗口检查 Python 3.12 x64、锁定版本、关键模块导入和 `pip check`；环境异常时可修复当前项目 `.venv`。EXE 仅检查随包内置的依赖，不启动 pip。修复后要关闭程序，并通过 `start.cmd` 重新启动。若缺少启动所需的 Qt 等依赖而无法打开窗口，运行 `setup.cmd`。
 
-1. 更新 `APP_VERSION`、`version.md`、`docs/RELEASE_NOTES.md`、本文的版本示例和接手文档；同步资源索引/许可证来源清单版本以及被索引清单的 SHA-256。指南内容没改时保留其 guide_version。
-2. 提交到 `master`，运行 `release.cmd`。源码和冻结 EXE 各执行三项固定诊断，构建验证 PE 版本与完整输入哈希。检查 `assets/release-info.json` 与实际输出。
-3. 推送 `master`，对这次打包的精确提交创建并推送 `v<APP_VERSION>` 标签；使用 GitHub Release 上传 `assets/` 下所有文件，说明使用 `docs/RELEASE_NOTES.md`。不要上传 `.venv`、临时数据或工作目录。
+## 本地构建正式发布
+
+发布包要求干净 Git 工作区和已提交的源码。输出目录必须是源码目录外**尚不存在的目录**；构建过程中不要改动源码或版本信息。提交全部发布输入后运行：
+
+```powershell
+.\release.cmd -Output "D:\releases\PYeyedata-1.0.0"
+```
+
+`release.cmd` 会先检查源码，再构建最终 EXE，并对冻结程序运行相同的三项固定诊断；最后核对 PE 版本、内嵌构建清单、原生依赖/许可证映射并打包。构建完成后检查输出目录的 `assets\release-info.json`、`assets\SHA256SUMS.txt` 和日志。源码与冻结检查报告分别位于 `source-checks/`、`frozen-checks/`；构建中间文件留在输出目录供排错，不要上传这些目录。
+
+Release 资产包括：
+
+- `PYeyedata-1.0.0-windows-x64.zip`：便携程序、部署文档、skill 目录和许可证。
+- `PYeyedata-1.0.0-windows-x64.exe`：独立程序文件。
+- `PYeyedata-1.0.0-source.zip`：与本次 EXE 相同提交的源码。
+- `PYeyedata-1.0.0-pyeyedata-study-config.zip`：可单独安装的完整 skill 目录。
+- `PYeyedata-1.0.0-pyeyedata-study-config.md`：含所有指引和 helper 源码的单文件版。
+- `release-info.json`、`native-components.json` 和 `SHA256SUMS.txt`：构建记录、原生依赖映射和所有发布文件的校验和。
+
+发布前同步 `APP_VERSION`、`version.md`、`docs/RELEASE_NOTES.md`、本文件、快速上手和接手文档，以及 `resource-index.json` / `source-manifest.json` 的版本与索引哈希。skill 或分发文档有变化时，也更新 build manifest 输入清单。图解手册内容未改时保留其 `guide_version`。数据、算法、缓存、`.pyea` 和 `.pyeplan` 契约版本不要随应用版本误升。
+
+## 发布到 GitHub
+
+确认构建资产和校验和后，推送精确提交，再为该提交建立与 `APP_VERSION` 完全匹配的标签，上传 `assets/` 内所有正式文件，并使用 `docs/RELEASE_NOTES.md` 作为版本说明。不要上传 `.venv`、临时数据、诊断工作目录或未列入 `assets/` 的构建中间文件。
 
 ```powershell
 git push origin master
-git tag v0.9.10
-git push origin v0.9.10
-$releaseAssets = Get-ChildItem -File 'D:\releases\PYeyedata-0.9.10\assets' | ForEach-Object FullName
-gh release create v0.9.10 @releaseAssets --verify-tag --title 'PYeyedata v0.9.10' --notes-file docs/RELEASE_NOTES.md
+git tag v1.0.0
+git push origin v1.0.0
+$releaseAssets = Get-ChildItem -File 'D:\releases\PYeyedata-1.0.0\assets' | ForEach-Object FullName
+gh release create v1.0.0 @releaseAssets --verify-tag --title 'PYeyedata v1.0.0' --notes-file docs/RELEASE_NOTES.md
 ```
 
-以上版本只作当前版示例，已有 Release 不要重复创建。也可在 GitHub Actions 手动运行 **Windows release**，输入已推送且与 APP_VERSION 一致的新标签；远程 Windows 2022 构建机使用 Python 3.12.10、相同脚本并发布 Release。本地发布与远程发布二选一，工作流不会因推送标签自动重复打包。远程工作流尚需在 GitHub 实际运行后才能确认该运行器的兼容性。
+发布前先确认远端尚无相同标签/Release，避免重复创建。也可以在 GitHub Actions 手动运行 **Windows release**，输入已推送且与 `APP_VERSION` 一致的标签；推送标签本身不会自动触发打包。远程工作流须以其实际运行结果判断，不因本机发布成功而推定远程构建已通过。
 
-Release 包含独立 EXE、便携 ZIP、精确提交 source.zip、校验和和构建信息。ZIP 内附部署说明及第三方许可证，EXE 的帮助菜单也能查看内置许可证。`native-components.json` 记录与实际构建逐一核对的原生组件哈希和声明映射，`source-manifest.json` 给出第三方来源和源码链接。原生组件变化时须先维护来源映射才能通过发布检查。本仓库没有给自身代码额外指定开源许可证，不要自行替作者添加授权。
+## 许可证与验证范围
 
-目前的检查是同主机构建、合成数据和离屏 GUI 检查，不代替真实设备科学验证或另一台干净 Windows 的首次启动、原生多屏/DPI 验收。启动失败先查看 `%LOCALAPPDATA%\PYeyedata\logs\`；诊断失败查看脚本输出目录下对应 `.log` 和 `result.json`。
+`native-components.json` 对应实际构建中的原生组件路径和哈希；`source-manifest.json` 及程序“帮助 → 许可证”列出第三方来源和适用说明。原生组件变化时须先更新来源映射，发布检查才能通过。项目本身未另行指定开源许可证；不要替作者添加授权声明。
 
-启动入口会核对实际加载的应用模块来源及包搜索目录，拒绝混用不同程序目录。固定检查从源码目录外运行同一 launcher，在 `result.json` 的 `process.module_origins` 及 `summary.json` 保留实际来源路径；这是模块解析检查，内容哈希仍由构建清单负责。会话缓存只在当前进程内复用；日志同时说明实际命中和未复用原因，重启不会自动从 checkpoint 接续。档案和方案的读取沿用各自校验契约。
+发布检查覆盖当前主机上的源码/冻结固定诊断、合成数据和离屏 GUI 操作，不等于真实设备科学验证，也不代表另一台干净 Windows 主机的首次启动、原生多屏或不同 DPI 验收。设备兼容性与科学适用范围须根据实际采集和研究设计另行确认。

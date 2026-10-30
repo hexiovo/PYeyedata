@@ -138,11 +138,19 @@ def create_build_manifest(project_root: Path) -> dict[str, Any]:
             "setup.cmd", "start.cmd", "release.cmd", "tools/manage.ps1",
             "tools/run_checks.py", "tools/release_windows.py",
             "README.md", "AGENTS.md", "CODEX_HANDOFF.md",
-            "docs/DEPLOYMENT.md", "docs/RELEASE_NOTES.md", "docs/WORKFLOW_ENHANCEMENTS.md",
+            "docs/QUICKSTART.md", "docs/DEPLOYMENT.md", "docs/RELEASE_NOTES.md", "docs/WORKFLOW_ENHANCEMENTS.md",
             "docs/COMMON_METRICS.md", "docs/STATISTICS_PRESETS.md",
-            "docs/PREPROCESSING_OPTIONS.md", "plans/common-eye-metrics.md",
+            "docs/PREPROCESSING_OPTIONS.md",
             ".github/workflows/release.yml",
         )
+    )
+    skill_root = project_root / ".agents" / "skills" / "pyeyedata-study-config"
+    if not skill_root.is_dir():
+        raise FileNotFoundError(f"Required study configuration skill is missing: {skill_root}")
+    source_files.extend(
+        path for path in skill_root.rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts
+        and path.suffix.lower() not in {".pyc", ".pyo"}
     )
     missing = [path for path in source_files if not path.is_file()]
     if missing:

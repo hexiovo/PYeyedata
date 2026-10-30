@@ -125,7 +125,7 @@
   "help_guide": {
     "status": "available",
     "resource_path": "help/PYeyedata-user-guide-zh.pdf",
-    "application_version": "0.9.10",
+    "application_version": "1.0.0",
     "guide_version": "0.9.3",
     "sha256": "89cd778e19c328eb9ae07197532117158aa4edfa34256b72a839173606f2b607",
     "illustrated_chapters": 26,
@@ -139,7 +139,7 @@
     "source_manifest": "fonts/font-source.json",
     "usage": "Keep the resource_path context open through registration and the complete render/export."
   },
-  "application_version": "0.9.10",
+  "application_version": "1.0.0",
   "licenses": {
     "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 286-entry map (including the three unique Tcl/Tk Splash dependency binaries) and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
     "source_manifest": "licenses/source-manifest.json",
@@ -230,7 +230,7 @@
       "licenses/qt/6.8.3/qtimageformats/libtiff/COPYRIGHT.txt": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7",
       "licenses/qt/6.8.3/qtimageformats/libwebp/COPYING.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
       "licenses/qt/6.8.3/qtimageformats/libwebp/PATENTS.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
-      "licenses/source-manifest.json": "b6bde0b1ed3fc69bfaf2a090097ee35ac92641d9cab0945231c728c27f6b72fd",
+      "licenses/source-manifest.json": "106fb11842b8024e32a27901e23a113fe2946546a028b51c111ad1cf27aadac5",
       "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
       "licenses/qt/6.8.3/attributions/qtbase-testlib-catch2-qt_attribution.json": "9d48fa7b86e9b0412b699e0411815766914478592da5bbb614a45443c14504b0",
       "licenses/qt/6.8.3/qtbase/testlib/catch2/LICENSE.txt": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",

@@ -13,6 +13,7 @@ import uuid
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+SKILL_ROOT = ROOT / ".agents" / "skills" / "pyeyedata-study-config"
 sys.path.insert(0, str(ROOT))
 
 from build_manifest import _read_application_identity, sha256_file
@@ -29,6 +30,26 @@ def clean_commit() -> str:
     if git("status", "--porcelain", "--untracked-files=normal"):
         raise RuntimeError("Commit all source changes before releasing; the Git source ZIP must match the EXE.")
     return git("rev-parse", "HEAD")
+
+
+def study_skill_files() -> list[Path]:
+    expected = {
+        "SKILL.md", "SINGLE_FILE_SKILL.md", "references/intake-and-orchestration.md",
+        "references/native-processing-and-statistics.md", "references/conversions-and-data.md",
+        "references/study-pack-and-runbook.md", "scripts/validate_plan.py",
+        "scripts/build_single_file.py",
+    }
+    if not SKILL_ROOT.is_dir():
+        raise FileNotFoundError(f"Study configuration skill is missing: {SKILL_ROOT}")
+    files = sorted((path for path in SKILL_ROOT.rglob("*")
+                    if path.is_file() and "__pycache__" not in path.parts
+                    and path.suffix.lower() not in {".pyc", ".pyo"}),
+                   key=lambda path: path.relative_to(SKILL_ROOT).as_posix())
+    actual = {path.relative_to(SKILL_ROOT).as_posix() for path in files}
+    if actual != expected:
+        raise RuntimeError(f"Study skill file set changed: missing={sorted(expected - actual)}, "
+                           f"unexpected={sorted(actual - expected)}")
+    return files
 
 
 def verify_native_notices(build: dict) -> list[dict]:
@@ -82,6 +103,20 @@ def package(output: Path) -> Path:
     stem = f"PYeyedata-{version}"
     binary_name = f"{stem}-windows-x64.exe"
     shutil.copy2(executable, assets / binary_name)
+    skill_files = study_skill_files()
+    skill_zip_name = f"{stem}-pyeyedata-study-config.zip"
+    skill_markdown_name = f"{stem}-pyeyedata-study-config.md"
+    skill_zip_path = assets / skill_zip_name
+    with zipfile.ZipFile(skill_zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in skill_files:
+            relative = path.relative_to(SKILL_ROOT).as_posix()
+            archive.write(path, f"pyeyedata-study-config/{relative}")
+    skill_markdown_path = assets / skill_markdown_name
+    shutil.copy2(SKILL_ROOT / "SINGLE_FILE_SKILL.md", skill_markdown_path)
+    skill_manifest = [
+        {"path": path.relative_to(SKILL_ROOT).as_posix(), "sha256": sha256_file(path)}
+        for path in skill_files
+    ]
     info = {
         "schema": "pyeyedata.release/v1", "application": identity,
         "git_commit": commit, "tag": f"v{version}",
@@ -91,6 +126,13 @@ def package(output: Path) -> Path:
         "executable_sha256": sha256_file(assets / binary_name),
         "manifest": build["manifest"], "pe_version": build["pe_version"],
         "native_notice_map": {"status": "pass", "components": len(native_components)},
+        "study_configuration_skill": {
+            "directory_zip": skill_zip_name,
+            "directory_zip_sha256": sha256_file(skill_zip_path),
+            "single_file_markdown": skill_markdown_name,
+            "single_file_sha256": sha256_file(skill_markdown_path),
+            "files": skill_manifest,
+        },
         "source_checks": source_checks, "frozen_checks": frozen_checks,
         "limits": ["Synthetic offscreen checks only; no real-device validation.",
                    "Clean-host, native DPI and multi-monitor acceptance are not claimed."],
@@ -101,12 +143,16 @@ def package(output: Path) -> Path:
     native_path.write_text(json.dumps(native_components, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     with zipfile.ZipFile(assets / f"{stem}-windows-x64.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(executable, "PYeyedata.exe")
+        archive.write(ROOT / "docs" / "QUICKSTART.md", "QUICKSTART.md")
         archive.write(ROOT / "docs" / "DEPLOYMENT.md", "DEPLOYMENT.md")
         archive.write(ROOT / "docs" / "RELEASE_NOTES.md", "RELEASE_NOTES.md")
         archive.write(ROOT / "docs" / "COMMON_METRICS.md", "COMMON_METRICS.md")
         archive.write(ROOT / "docs" / "WORKFLOW_ENHANCEMENTS.md", "WORKFLOW_ENHANCEMENTS.md")
         archive.write(ROOT / "docs" / "STATISTICS_PRESETS.md", "STATISTICS_PRESETS.md")
         archive.write(ROOT / "docs" / "PREPROCESSING_OPTIONS.md", "PREPROCESSING_OPTIONS.md")
+        for path in skill_files:
+            relative = path.relative_to(SKILL_ROOT).as_posix()
+            archive.write(path, f"pyeyedata-study-config/{relative}")
         archive.write(info_path, "release-info.json")
         archive.write(native_path, "native-components.json")
         for path in sorted((ROOT / "pyeyedata" / "resources" / "licenses").rglob("*")):
@@ -122,12 +168,43 @@ def package(output: Path) -> Path:
         archived_identity = archive.read(f"{stem}/pyeyedata/app_info.py").replace(b"\r\n", b"\n")
         if archived_identity != (ROOT / "pyeyedata/app_info.py").read_bytes().replace(b"\r\n", b"\n"):
             raise RuntimeError("Source ZIP application identity differs from checkout")
+        source_names = set(archive.namelist())
+        for path in skill_files:
+            member = f"{stem}/.agents/skills/pyeyedata-study-config/{path.relative_to(SKILL_ROOT).as_posix()}"
+            if member not in source_names:
+                raise RuntimeError(f"Source ZIP is missing the study skill file: {member}")
+        for relative in ("docs/QUICKSTART.md", "docs/DEPLOYMENT.md", "docs/RELEASE_NOTES.md"):
+            if f"{stem}/{relative}" not in source_names:
+                raise RuntimeError(f"Source ZIP is missing release documentation: {relative}")
+    expected_skill_members = {
+        f"pyeyedata-study-config/{path.relative_to(SKILL_ROOT).as_posix()}" for path in skill_files
+    }
+    with zipfile.ZipFile(skill_zip_path) as archive:
+        if archive.testzip() is not None or set(archive.namelist()) != expected_skill_members:
+            raise RuntimeError("Standalone study skill ZIP integrity or membership check failed")
+        for path in skill_files:
+            member = f"pyeyedata-study-config/{path.relative_to(SKILL_ROOT).as_posix()}"
+            if archive.read(member) != path.read_bytes():
+                raise RuntimeError(f"Standalone study skill ZIP content mismatch: {member}")
     with zipfile.ZipFile(assets / f"{stem}-windows-x64.zip") as archive:
-        if archive.testzip() is not None:
-            raise RuntimeError("Portable ZIP integrity check failed")
+        members = set(archive.namelist())
+        required = {"PYeyedata.exe", "QUICKSTART.md", "DEPLOYMENT.md", "RELEASE_NOTES.md",
+                    "pyeyedata-study-config/SINGLE_FILE_SKILL.md"}
+        required.update(expected_skill_members)
+        if archive.testzip() is not None or not required.issubset(members):
+            raise RuntimeError("Portable ZIP integrity or required-member check failed")
+        for path in skill_files:
+            member = f"pyeyedata-study-config/{path.relative_to(SKILL_ROOT).as_posix()}"
+            if archive.read(member) != path.read_bytes():
+                raise RuntimeError(f"Portable ZIP study skill content mismatch: {member}")
     (assets / "SHA256SUMS.txt").write_text("".join(
         f"{sha256_file(path)}  {path.name}\n" for path in sorted(assets.iterdir()) if path.is_file()
     ), encoding="utf-8")
+    for line in (assets / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
+        expected_hash, filename = line.split("  ", 1)
+        target = assets / filename
+        if not target.is_file() or sha256_file(target) != expected_hash:
+            raise RuntimeError(f"Release asset checksum verification failed: {filename}")
     print(f"Release assets: {assets}", flush=True)
     return assets
 

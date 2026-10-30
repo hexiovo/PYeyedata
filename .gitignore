@@ -3,9 +3,36 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+.coverage
+
+# User analysis files and generated study outputs
+*.pyea
+*.pyeplan
+!pyeyedata/resources/help/examples/*.pyeplan
+/study-pack/
+/converted/
+/exports/
+/runs/
+/archives/
+/results/
+/reports/
+/logs/
+/tmp/
+/temp/
+/input/
+/inputs/
+/output/
+/outputs/
+*.tmp
+*.temp
+*.log
+*.bak
 
 # Local environments and root-level build outputs
 .venv/
 /build/
 /dist/
 /artifacts/
+/*.exe
+/release-output/
+/release-build/

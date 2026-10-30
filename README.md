@@ -1,47 +1,42 @@
 # PYeyedata
 
-PYeyedata is a Windows desktop application for eye-tracking data analysis. The supported operating systems are Windows 10 and Windows 11, x64.
+PYeyedata 是面向 Windows 10/11 x64 的桌面眼动数据分析软件。普通使用无需另装 Python、Qt、服务器或数据库。
 
-## 下载即用 / 新主机开发
+## 下载与安装
 
-**[下载最新 Release](https://github.com/hexiovo/PYeyedata/releases/latest)**：选择 `windows-x64.zip`，解压后运行 `PYeyedata.exe`；不需要安装 Python。也提供独立 EXE、源码包、校验和与构建信息。
+**[下载最新版本](https://github.com/hexiovo/PYeyedata/releases/latest)**。推荐下载 `PYeyedata-1.0.0-windows-x64.zip`：完整解压后运行目录中的 `PYeyedata.exe`。也提供独立 EXE、源码包、校验和、构建记录，以及可单独下载的研究配置 skill 目录包和单文件版。
 
-开发主机安装 Windows x64 Python 3.12（推荐 3.12.10）后，运行 `setup.cmd` 准备环境，`start.cmd` 启动，提交修改后用 `release.cmd` 检查并打包。
+首次使用请先看[快速上手](docs/QUICKSTART.md)。它包含下载校验、完整解压、合成练习、文件类型说明和实验配置指引。ZIP 内也附有快速上手、部署说明、发布说明、指标/预处理指南、skill 文件和第三方许可证材料。
 
-- [完整部署与发布说明](docs/DEPLOYMENT.md)
-- [Codex 项目现状与接手指南](CODEX_HANDOFF.md)（另一台主机先读此文及根目录 AGENTS.md）
-- [本次更新](docs/RELEASE_NOTES.md)
+## 分析文件
 
-## 第一次使用
+- 按 **F1** 或选择 **帮助 → 新手入门与文件示例** 查看内置帮助。
+- 使用 **帮助 → 导出练习资料与模板** 获取合成练习数据和空白模板。导入 `signals-practice.csv` 并加载 `pupil-mean-practice.pyeplan`，可以核对左瞳孔平均值约为 3.3 mm。此练习不代表真实设备验证。
+- `.pyeplan` 保存分析设置，不包含输入数据或结果；`.pyea` 保存一次运行档案。导入配置、研究清单、数据文件与这两类文件用途不同。
+- 配置方案通过 **文件 → 加载分析方案…** 使用；真实数据通过“数据导入”页打开，运行档案在“结果与追溯”中查看。
 
-运行单文件 `PYeyedata.exe` 后，按 **F1** 或点 **帮助 → 新手入门与文件示例**。
-用 **帮助 → 导出练习资料与模板** 得到一套合成练习数据、空白模板和通俗说明。
-按练习导入 `signals-practice.csv` 并加载 `pupil-mean-practice.pyeplan`，可核对左瞳孔平均值约为 3.3 mm。
+## 实验配置 skill
 
-**文件 → 保存/加载分析方案** 用来复用设置；**结果与追溯 → 保存运行档案** 用来保留某次结果。
-退出时如有未归档的运行，可以返回、逐个归档后退出，或明确选择不归档。
-方案、结果导出和运行档案的区别，以及全部 10 类输入文件的填写实例，都在内置帮助和离线 PDF 手册里。
+Release 同时提供 `PYeyedata-1.0.0-pyeyedata-study-config.zip` 和 `PYeyedata-1.0.0-pyeyedata-study-config.md`。目录版适合安装到支持 skill 目录的 AI 工具；单文件版可随实验设计、数据字典和脱敏样例一起作为附件提供。它会生成参数台账、输入转换计划、原生 `.pyeplan`、统计边界、阶段清单和零基础主试手册。
 
-0.9.6 包含导入映射预设、逐文件批量队列、质量时间轴定位、静态图片 AOI 编辑、运行比较和缺失原因导航。具体操作及限制见[工作流补充说明](docs/WORKFLOW_ENHANCEMENTS.md)；便携 ZIP 随附此说明。内置 41 页 PDF 内容仍为 0.9.3，新增功能请阅读补充说明。
+配置是否可加载必须由匹配源码和运行环境中的 PYeyedata 原生 API 检验；无法运行校验时要标为 `not_run`。结构校验不等于真实数据导入、统计设计成立或真实设备的小样本试运行通过。skill 不会替代主试确认单位、有效性、时间基准、独立单位等实验事实。
 
-0.9.6 另新增 52 个常见眼动指标：事件分布统计、基于注视事件的 AOI 首次注视/时长、阅读时间与跳读/回视率，以及已观察试次/被试的 AOI 命中率。入口、阅读标注示例、分母与未知状态规则见[常见指标说明](docs/COMMON_METRICS.md)。原有 AOI 首次进入和访问指标保持原义。
+## 开发与发布
 
-## Build from source
-
-Use 64-bit CPython 3.12.1 or a later 3.12.x release on a Windows 10/11 x64 build machine. CPython 3.12.10 is the validated runtime. Version 3.12.0 is below the build minimum because a code-object replacement bug can break PyInstaller's frozen SciPy startup. Install the pinned environment from `requirements.txt`, then run the checked-in one-file build runner with a new output directory outside the repository:
+开发环境要求 Windows x64 CPython 3.12（最低 3.12.1，已验证 3.12.10）和 Git。进入仓库目录后运行：
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-$releaseOutput = Join-Path $env:TEMP ("PYeyedata-release-" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Path $releaseOutput | Out-Null
-.\.venv\Scripts\python.exe -X utf8 -B .\build_windows.py --run $releaseOutput --phase final
+.\setup.cmd
+.\start.cmd
 ```
 
-The resulting `PYeyedata.exe`, build logs, and verification evidence are written under `$releaseOutput`. The recipe derives the project root from the checked-out source and does not require the original HexiPlan RUN or its audit files. PyInstaller Analysis omits only the reviewed API-set/UCRT names when their source is the build host's `System32`; same-named package files are retained, and any other System32-sourced binary fails the build. Windows 10/11 supplies the API-set contracts and Universal CRT used by the application.
+准备依赖需要网络；环境只安装到项目 `.venv`。检查与发布步骤见[部署说明](docs/DEPLOYMENT.md)。
 
-The output records the actual build inputs and environment. Build artifacts are machine-specific; the procedure does not promise byte-identical EXEs across different Windows installations.
+- [快速上手](docs/QUICKSTART.md)
+- [部署、更新与发布说明](docs/DEPLOYMENT.md)
+- [本版本说明](docs/RELEASE_NOTES.md)
+- [项目接手指南](CODEX_HANDOFF.md)
 
-## Licenses
+## 许可与校验
 
-The application exposes its bundled third-party licenses and source notices through **Help → Licenses**. The source manifest identifies bundled runtime and resource components, their source references, and applicable notices. Review the Microsoft Visual C++ runtime conditions and component provenance before distributing a frozen binary outside the local application scope; the source tree and the build recipe do not establish a general binary redistribution right.
+应用随附的第三方许可证和来源说明可在程序的 **帮助 → 许可证** 中查看，便携包也附有相同材料。下载后按同一 Release 的 `SHA256SUMS.txt` 校验文件。项目自身未另行指定开源许可证；不得将第三方许可证解释为对项目代码的授权。
