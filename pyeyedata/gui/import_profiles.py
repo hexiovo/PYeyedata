@@ -349,6 +349,50 @@ def create_structure_signature(columns_by_role: Mapping[str, Sequence[str]]) -> 
     return _normalize_signature(columns_by_role, "observed")
 
 
+def builtin_import_profiles() -> tuple[ImportProfile, ...]:
+    """Editable export templates, never declarations of device validation.
+
+    Only tabular sample exports are supported, not EDF or mixed-record ASC.
+    EyeLink pupil size stays in device units (area/diameter is export-dependent).
+    """
+    profiles: list[ImportProfile] = []
+
+    def add(key: str, name: str, mapping: dict[str, str], pupil_unit: str) -> None:
+        units = {name: "ms" if name == "time_s" else
+                 pupil_unit if name.startswith("pupil_") else "px"
+                 for name in mapping if name in {"time_s", "gaze_x", "gaze_y", "pupil_left", "pupil_right"}}
+        source = ImportSourceProfile("signals", mapping, units, CsvOptions(delimiter="\t"))
+        profiles.append(ImportProfile(
+            profile_id=key, name=name, revision=1, sources=(source,),
+            structure_signature={"signals": tuple(dict.fromkeys(mapping.values()))},
+            coordinate_metadata=CoordinateMetadata(
+                time_unit="ms", coordinate_unit="px", coordinate_representation="2d_point",
+            ),
+            pupil_units_by_eye={eye: pupil_unit for eye in ("left", "right")
+                                if f"pupil_{eye}" in mapping},
+        ))
+
+    for eye, title in (("LEFT", "左眼"), ("RIGHT", "右眼")):
+        add(f"builtin-eyelink-{eye.lower()}", f"EyeLink Data Viewer · {title}采样报告（ms）", {
+            "subject_id": "RECORDING_SESSION_LABEL", "trial": "TRIAL_INDEX",
+            "time_s": "TIMESTAMP", "gaze_x": f"{eye}_GAZE_X", "gaze_y": f"{eye}_GAZE_Y",
+            f"pupil_{eye.lower()}": f"{eye}_PUPIL_SIZE",
+        }, "device")
+    for bracketed in (False, True):
+        suffix = "-units" if bracketed else ""
+        add(f"builtin-tobii-prolab{suffix}",
+            "Tobii Pro Lab · " + ("带单位表头（ms / DACS px）" if bracketed else "传统表头（ms / DACS px）"), {
+                "subject_id": "Participant name", "session_id": "Recording name",
+                "time_s": "Recording timestamp [ms]" if bracketed else "Recording timestamp",
+                "gaze_x": "Gaze point X [DACS px]" if bracketed else "Gaze point X",
+                "gaze_y": "Gaze point Y [DACS px]" if bracketed else "Gaze point Y",
+                "pupil_left": "Pupil diameter left [mm]" if bracketed else "Pupil diameter left",
+                "pupil_right": "Pupil diameter right [mm]" if bracketed else "Pupil diameter right",
+                "stimulus_id": "Presented Stimulus name",
+            }, "mm")
+    return tuple(profiles)
+
+
 def _profile_directory(directory: str | os.PathLike[str] | None) -> Path:
     if directory is None:
         from pyeyedata_bootstrap import user_directory

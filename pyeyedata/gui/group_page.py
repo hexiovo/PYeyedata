@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from .forms import TypedParameterForm
+from .widgets import configure_combo_popup
 from .method_registry import group_parameter_field_groups, group_parameter_fields
 
 
@@ -136,6 +137,7 @@ class GroupDesignPage(QWidget):
         root = QVBoxLayout(self)
         header = QHBoxLayout()
         self.mode_combo = QComboBox(self)
+        configure_combo_popup(self.mode_combo)
         self.mode_combo.addItem("群体分析", "group")
         self.mode_combo.addItem("个体范围预览", "individual")
         self.mode_combo.setToolTip("群体方法按明确 interaction_id 组成 N 人单元；个体模式不会生成群体对。")

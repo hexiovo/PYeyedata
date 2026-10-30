@@ -2,11 +2,99 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
+import tempfile
 
 from PySide6.QtCore import QEvent, QPointF, Qt
-from PySide6.QtGui import QFocusEvent, QMouseEvent
+from PySide6.QtGui import QFocusEvent, QFont, QMouseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QFormLayout, QLineEdit, QWidget
+from PySide6.QtWidgets import QComboBox, QFormLayout, QLineEdit, QWidget
+
+
+def _import_template_checks(app: Any) -> dict[str, bool]:
+    import pandas as pd
+    from pyeyedata.io import SignalImportOptions, normalize_signals, read_table
+    from .import_page import ImportPage, _ProfileStageDialog
+    from .import_profiles import ImportProfile, builtin_import_profiles
+    from .widgets import configure_combo_popup
+
+    checks: dict[str, bool] = {}
+    profiles = builtin_import_profiles()
+    page = ImportPage()
+    checks["builtin_templates_available_without_saved_profiles"] = all(
+        page.import_profile_combo.findData("builtin:" + profile.profile_id) >= 0 for profile in profiles
+    )
+    with tempfile.TemporaryDirectory(prefix="pyeyedata-template-check-") as root:
+        for profile in profiles:
+            source = profile.sources[0]
+            frame = pd.DataFrame({column: [100, 116, 132]
+                                  for column in source.column_map.values()})
+            for field in ("subject_id", "session_id", "stimulus_id", "trial"):
+                if field in source.column_map:
+                    frame[source.column_map[field]] = [field + "-A"] * 3
+            for field in ("pupil_left", "pupil_right"):
+                if field in source.column_map:
+                    frame[source.column_map[field]] = [3.1, 3.2, 3.3]
+            frame["unused_export_column"] = "kept"
+            path = Path(root) / (profile.profile_id + (".txt" if "eyelink" in profile.profile_id else ".tsv"))
+            frame.to_csv(path, sep="\t", index=False, encoding="utf-8-sig")
+            page.coordinate.subject_id.setText("explicit-subject")
+            page.coordinate.session_id.setText("explicit-session")
+            page.sources["signals"].path_edit.setText(str(path))
+            stages, notices = page._stage_import_profile(profile)
+            stage = stages["signals"]
+            dialog = _ProfileStageDialog(page, profile, stages, notices)
+            checks[profile.profile_id + "_review_required"] = (
+                "signals" in dialog._confirmations and bool(notices)
+                and not dialog._confirmations["signals"].isChecked()
+            )
+            page._validate_staged_profile(profile, stages)
+            page._apply_staged_profile(profile, stages)
+            imported = read_table(path, role="signals", csv_options=source.csv_options)
+            normalized = normalize_signals(imported, SignalImportOptions(
+                column_map=stage.editor.mapping(), subject_id="explicit-subject", session_id="explicit-session",
+                time=profile.coordinate_metadata,
+            ))
+            checks[profile.profile_id + "_mapping_units_and_time"] = (
+                stage.editor.mapping() == dict(source.column_map)
+                and abs(float(normalized.signals["time_s"].iloc[1]) - 0.116) < 1e-12
+                and stage.editor.units().get("gaze_x") == "px"
+                and not page.coordinate.time_confirmed.isChecked()
+                and not profile.coordinate_metadata.sync_confirmed
+                and not profile.coordinate_metadata.device_verified
+                and ImportProfile.from_dict(profile.to_dict()) == profile
+            )
+            # A missing header must stay unmapped; neither a neighboring column
+            # nor an old live mapping may be silently substituted.
+            frame.drop(columns=[source.column_map["gaze_x"]]).to_csv(path, sep="\t", index=False)
+            missing, _ = page._stage_import_profile(profile)
+            checks[profile.profile_id + "_missing_column_not_guessed"] = (
+                "gaze_x" not in missing["signals"].editor.mapping()
+                and not missing["signals"].signature_difference.compatible
+            )
+            dialog.deleteLater()
+    page.deleteLater()
+
+    combo = QComboBox()
+    configure_combo_popup(combo)
+    combo.addItems(["群体分析", "个体范围预览"])
+    for points in (10, 16, 24):
+        font = QFont(app.font())
+        font.setPointSize(points)
+        combo.setFont(font)
+        combo.show()
+        combo.showPopup()
+        app.processEvents()
+        view = combo.view()
+        checks[f"scope_popup_readable_at_{points}pt"] = all(
+            view.visualRect(combo.model().index(row, 0)).height() >= combo.fontMetrics().height() + 12
+            and view.viewport().width() >= combo.fontMetrics().horizontalAdvance(combo.itemText(row)) + 24
+            for row in range(combo.count())
+        ) and combo.height() >= combo.fontMetrics().height() + 12
+        combo.hidePopup()
+    combo.close()
+    combo.deleteLater()
+    return checks
 def run_ui_diagnostics(app: Any, window: Any) -> dict[str, Any]:
     """Check the visible fixes without loading real user data or changing inputs."""
     checks: dict[str, bool] = {}
@@ -16,6 +104,9 @@ def run_ui_diagnostics(app: Any, window: Any) -> dict[str, Any]:
         checks[name] = bool(passed)
         if not passed:
             failures.append(name)
+
+    for name, passed in _import_template_checks(app).items():
+        record(name, passed)
 
     record(
         "logs_are_on_separate_navigation_page",

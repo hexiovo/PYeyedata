@@ -21,12 +21,12 @@ _MANIFEST_REPOSITORY_PATH = "pyeyedata/resources/" + BUILD_MANIFEST_RESOURCE
 _CORE_NAMES = (
     "__init__.py", "advanced_signals.py", "aoi_geometry.py", "app_info.py",
     "archive_session.py", "build_identity.py", "contracts.py", "event_queries.py",
-    "events.py", "execution_cache.py", "exports.py", "eye_streams.py", "group.py",
+    "events.py", "environment.py", "execution_cache.py", "exports.py", "eye_streams.py", "group.py",
     "individual.py", "io.py", "pipeline.py", "processing.py", "reporting.py",
     "resource_paths.py", "scopes.py", "statistics.py", "store.py",
     "methods/__init__.py", "methods/scanpath.py",
 )
-_GUI_NAMES = ("__init__.py", "app.py", "main_window.py", "bridge.py", "models.py", "session.py", "tasks.py")
+_GUI_NAMES = ("__init__.py", "app.py", "main_window.py", "bridge.py", "models.py", "session.py", "tasks.py", "environment_dialog.py")
 REQUIRED_SOURCE_KEYS = frozenset(
     ["pyeyedata/" + name for name in _CORE_NAMES]
     + ["pyeyedata/gui/" + name for name in _GUI_NAMES]

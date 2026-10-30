@@ -1800,7 +1800,8 @@ def _run_reliability_smoke(app: Any, window: Any, workspace: Path,
             profile_page.scope.overlap.setCurrentIndex(profile_page.scope.overlap.findData("keep_labels"))
             profile_page.scope.duplicate.setCurrentIndex(profile_page.scope.duplicate.findData("deduplicate"))
             profile_page.save_current_import_profile()
-            if profile_page.import_profile_combo.count() != 2 or "已保存“Synthetic device”" not in profile_page.import_profile_status.text():
+            if (profile_page.import_profile_combo.findData(next(iter(profile_page._profiles_by_id))) < 0
+                    or "已保存“Synthetic device”" not in profile_page.import_profile_status.text()):
                 raise RuntimeError("Import-page GUI did not save and list the named profile: "
                                    + profile_page.import_profile_status.text())
             saved_path = next(profile_root.glob("*.json"))
@@ -3345,6 +3346,8 @@ def run_diagnostic(config_path: str) -> int:
                     + ", ".join(str(item) for item in ui_evidence.get("failures", ()))
                 )
             evidence["main_window_ui_diagnostics"] = ui_evidence
+            from .diagnostic_environment import run_environment_checks
+            evidence["environment_checks"] = run_environment_checks(app, workspace / "environment-checks")
             from .diagnostic_catalog_ui import run_catalogue_ui_diagnostics
 
             catalogue_ui_evidence = run_catalogue_ui_diagnostics(app, window, workspace)

@@ -61,6 +61,7 @@ from .import_profiles import (
     ImportProfile,
     ImportProfileError,
     ImportSourceProfile,
+    builtin_import_profiles,
     compare_structure_signatures,
     list_import_profiles,
     read_import_profile,
@@ -68,7 +69,7 @@ from .import_profiles import (
 )
 from .mapping import PerformanceMappingWidget, TableMappingEditor, role_fields
 from .task_timing import TaskTiming, TimingEstimator, format_timing
-from .widgets import DataFrameTableModel, DataFrameTableView
+from .widgets import DataFrameTableModel, DataFrameTableView, configure_combo_popup
 
 
 _ROLE_TITLES = {
@@ -1311,9 +1312,11 @@ class ImportSourcePanel(QWidget):
         return CsvOptions(self.encoding_edit.text().strip(), self.delimiter_combo.currentData(), self.decimal_combo.currentData())
 
     def _choose_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "选择" + _ROLE_TITLES[self.role] + "文件", "", "CSV / XLSX (*.csv *.xlsx)")
+        path, _ = QFileDialog.getOpenFileName(self, "选择" + _ROLE_TITLES[self.role] + "文件", "", "采样表 (*.csv *.tsv *.txt *.xlsx)")
         if path:
             self.path_edit.setText(path)
+            if Path(path).suffix.lower() in {".tsv", ".txt"}:
+                _set_combo_value(self.delimiter_combo, "\t", "制表符")
             self.clear_preview(keep_path=True)
             self.changed.emit(self.role)
 
@@ -1772,6 +1775,7 @@ class ImportPage(QWidget):
         self.batch_queue_button = QPushButton("批量分析队列…", self)
         self.batch_queue_button.setToolTip("按当前已确认的导入映射预设，逐个独立分析并导出结果。")
         self.import_profile_combo = QComboBox(self)
+        configure_combo_popup(self.import_profile_combo)
         self.import_profile_combo.setObjectName("importProfileCombo")
         self.import_profile_refresh_button = QPushButton("刷新预设", self)
         self.import_profile_save_button = QPushButton("保存当前映射…", self)
@@ -2141,7 +2145,10 @@ class ImportPage(QWidget):
         self._profile_error_items.clear()
         blocker = QSignalBlocker(self.import_profile_combo)
         self.import_profile_combo.clear()
-        self.import_profile_combo.addItem("选择已保存的预设…", "")
+        self.import_profile_combo.addItem("选择内置或已保存的预设…", "")
+        for profile in builtin_import_profiles():
+            key = "builtin:" + profile.profile_id
+            self.import_profile_combo.addItem("内置 · " + profile.name, key)
         try:
             entries = list_import_profiles()
         except Exception as exc:
@@ -2157,7 +2164,7 @@ class ImportPage(QWidget):
             else:
                 self._profiles_by_id[profile.profile_id] = profile
                 self.import_profile_combo.addItem(
-                    f"{profile.name} · r{profile.revision}", profile.profile_id
+                    f"自定义 · {profile.name} · r{profile.revision}", profile.profile_id
                 )
         target = self.import_profile_combo.findData(selected)
         if target < 0 and selected:
@@ -2165,9 +2172,8 @@ class ImportPage(QWidget):
         self.import_profile_combo.setCurrentIndex(target if target >= 0 else 0)
         del blocker
         self.import_profile_status.setText(
-            f"已读取 {len(self._profiles_by_id)} 个预设；与 .pyeplan 分开管理，不保存源文件路径。"
-            if self._profiles_by_id else
-            "尚无可用预设。保存前请先预览实际源文件并确认映射；预设与 .pyeplan 分开管理。"
+            f"内置 {len(builtin_import_profiles())} 个模板，自定义 {len(self._profiles_by_id)} 个。"
+            "选择实际采样导出文件后预览并应用；请核对时间单位、字段和眼别。预设与 .pyeplan 分开管理。"
         )
         self._update_import_profile_controls()
 
@@ -2299,12 +2305,15 @@ class ImportPage(QWidget):
             QMessageBox.warning(self, "导入预设无法读取", error)
             return
         try:
-            entries = {profile.profile_id: path for path, profile, error in list_import_profiles()
-                       if profile is not None and error is None}
-            path = entries.get(str(selected))
-            if path is None:
-                raise ImportProfileError("所选预设已不存在或无法读取；刷新列表后重试。")
-            profile = read_import_profile(path)
+            builtins = {"builtin:" + profile.profile_id: profile for profile in builtin_import_profiles()}
+            profile = builtins.get(str(selected))
+            if profile is None:
+                entries = {profile.profile_id: path for path, profile, error in list_import_profiles()
+                           if profile is not None and error is None}
+                path = entries.get(str(selected))
+                if path is None:
+                    raise ImportProfileError("所选预设已不存在或无法读取；刷新列表后重试。")
+                profile = read_import_profile(path)
             stages, notices = self._stage_import_profile(profile)
             if "signals" not in stages:
                 raise ImportProfileError("请先为当前导入页选择主要信号文件；预设不会恢复或猜测文件路径。")
@@ -2355,6 +2364,13 @@ class ImportPage(QWidget):
     ) -> tuple[dict[str, _StagedProfileSource], list[str]]:
         stages: dict[str, _StagedProfileSource] = {}
         notices: list[str] = []
+        if profile in builtin_import_profiles():
+            notices.append(
+                "内置模板只适用于带表头的采样表（TSV/TXT 或 XLSX），不直接读取 EDF 或混合记录 ASC。"
+                "缺少的列保持未映射，请在候选表补选；ID 缺失时请填写明确的参与者/会话 ID。"
+                "Tobii 须导出毫秒时间和 DACS 像素坐标；EyeLink 主注视点使用模板名称所示眼别，"
+                "瞳孔保留设备单位，不换算为 mm。设备、同步与 AOI 坐标仍需另行确认。"
+            )
         for source in profile.sources:
             panel = self.sources[source.role]
             if not panel.source_path:
@@ -3028,6 +3044,8 @@ class ImportPage(QWidget):
         if self._profile_operation_blocked():
             raise ImportProfileError("导入页正忙；请等待当前操作结束后再准备批量队列。")
         profile_id = self.import_profile_combo.currentData()
+        if str(profile_id).startswith("builtin:"):
+            raise ImportProfileError("批量分析前，请将核对后的内置模板‘保存当前映射’，再使用该自定义预设。")
         profile = self._profiles_by_id.get(str(profile_id)) if profile_id else None
         if profile is None:
             raise ImportProfileError("批量分析前，请先选择一个有效的导入映射预设。")

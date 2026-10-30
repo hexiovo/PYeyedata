@@ -4,9 +4,44 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, QObject, Qt
 from PySide6.QtGui import QKeySequence
-from PySide6.QtWidgets import QApplication, QTableView
+from PySide6.QtWidgets import QApplication, QComboBox, QListView, QStyledItemDelegate, QTableView
+
+
+class _ComboPopupDelegate(QStyledItemDelegate):
+    def sizeHint(self, option: Any, index: QModelIndex) -> Any:
+        size = super().sizeHint(option, index)
+        metrics = option.fontMetrics
+        size.setHeight(max(size.height(), metrics.height() + 16))
+        size.setWidth(max(size.width(), metrics.horizontalAdvance(str(index.data() or "")) + 28))
+        return size
+
+
+class _ComboPopupMetrics(QObject):
+    def eventFilter(self, watched: Any, event: Any) -> bool:
+        if event.type() in {QEvent.Type.Polish, QEvent.Type.FontChange, QEvent.Type.Show,
+                            QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress}:
+            metrics = watched.fontMetrics()
+            watched.setMinimumHeight(metrics.height() + 14)
+            width = max((metrics.horizontalAdvance(watched.itemText(i))
+                         for i in range(watched.count())), default=0)
+            watched.setMinimumWidth(min(width + 48, metrics.averageCharWidth() * 30 + 32))
+            watched.view().setFont(watched.font())
+            watched.view().setMinimumWidth(width + 48)
+        return False
+
+
+def configure_combo_popup(combo: QComboBox) -> None:
+    """Use a font-sized list instead of Fusion's compact menu delegate."""
+    view = QListView(combo)
+    view.setItemDelegate(_ComboPopupDelegate(view))
+    view.setTextElideMode(Qt.TextElideMode.ElideNone)
+    combo.setView(view)
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(14)
+    combo._popup_metrics = _ComboPopupMetrics(combo)
+    combo.installEventFilter(combo._popup_metrics)
 
 
 class DataFrameTableModel(QAbstractTableModel):

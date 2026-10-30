@@ -40,7 +40,7 @@ MAX_IMPORT_BYTES = 2 * 1024**3
 MAX_XLSX_UNCOMPRESSED_BYTES = 8 * 1024**3
 MAX_XLSX_MEMBERS = 10_000
 MAX_XLSX_COMPRESSION_RATIO = 200
-SUPPORTED_SUFFIXES = {".csv", ".xlsx"}
+SUPPORTED_SUFFIXES = {".csv", ".tsv", ".txt", ".xlsx"}
 
 
 class DataImportError(ValueError):
@@ -233,13 +233,14 @@ def read_table(
     if not source.is_file():
         raise DataImportError("Input path is not a regular file")
     if source.suffix.lower() not in SUPPORTED_SUFFIXES:
-        raise DataImportError("Only CSV and XLSX are supported; XLSM/macros are rejected")
+        raise DataImportError("Only CSV, TSV, tabular TXT and XLSX are supported; XLSM/macros are rejected")
     size = source.stat().st_size
     if size > MAX_IMPORT_BYTES:
         raise DataImportError(f"Input exceeds the bounded {MAX_IMPORT_BYTES}-byte import limit")
     digest = _sha256_file(source)
-    if source.suffix.lower() == ".csv":
-        frame = _read_csv(source, csv_options or CsvOptions(), preview_rows)
+    if source.suffix.lower() != ".xlsx":
+        default_options = CsvOptions(delimiter="\t") if source.suffix.lower() in {".tsv", ".txt"} else CsvOptions()
+        frame = _read_csv(source, csv_options or default_options, preview_rows)
         selected_sheet = None
         source_rows = tuple(range(2, len(frame) + 2))
     else:
@@ -891,7 +892,11 @@ def _resolve_mapping(
         candidates = []
         for alias in (*aliases.get(canonical, ()), canonical):
             candidates.extend(normalized.get(_fold(alias), []))
-        candidates = list(dict.fromkeys(candidates))
+        # A reviewed explicit assignment owns its source column. In particular,
+        # LEFT_GAZE_X explicitly selected as gaze_x must not also be inferred as
+        # gaze_left_x by the alias fallback.
+        candidates = [candidate for candidate in dict.fromkeys(candidates)
+                      if candidate not in requested.values()]
         if len(candidates) > 1:
             raise DataImportError(f"More than one source column can map to {canonical!r}; map it explicitly")
         if candidates:

@@ -344,7 +344,7 @@ class BatchQueueDialog(QDialog):
 
     def _choose_files(self) -> None:
         paths, _filter = QFileDialog.getOpenFileNames(
-            self, "添加待分析文件", "", "眼动数据 (*.csv *.tsv *.xlsx *.xls);;所有文件 (*)",
+            self, "添加待分析文件", "", "眼动数据 (*.csv *.tsv *.txt *.xlsx);;所有文件 (*)",
         )
         if paths:
             self.addFilesRequested.emit([str(path) for path in paths])

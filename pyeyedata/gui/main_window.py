@@ -614,12 +614,23 @@ class MainWindow(QMainWindow):
         self.pdf_guide_action.triggered.connect(self._open_pdf_guide)
         help_menu.addAction(self.pdf_guide_action)
         help_menu.addSeparator()
+        self.environment_action = QAction("环境检查与依赖安装…", self)
+        self.environment_action.setObjectName("environmentCheckAction")
+        self.environment_action.triggered.connect(self._open_environment)
+        help_menu.addAction(self.environment_action)
         about_action = QAction("关于 PYeyedata", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
         licenses_action = QAction("许可与第三方声明", self)
         licenses_action.triggered.connect(self._show_licenses)
         help_menu.addAction(licenses_action)
+
+    def _open_environment(self) -> None:
+        from .environment_dialog import EnvironmentDialog
+
+        dialog = EnvironmentDialog(self, allow_install=not self._configuration_busy())
+        dialog.exec()
+        dialog.deleteLater()
 
     def _show_about(self) -> None:
         from pyeyedata.contracts import CONTRACT_VERSION
@@ -680,6 +691,7 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self.pdf_guide_action)
         toolbar.addAction(self.help_action)
+        toolbar.addAction(self.environment_action)
         self.preflight_action.triggered.connect(self.start_preflight)
         self.run_action.triggered.connect(self.start_analysis)
         self.cancel_action.triggered.connect(self._cancel_current_task)
