@@ -4,6 +4,7 @@
 - Synchronized application identity, deployment/release/handoff documentation, both resource-index identities and license source-manifest identity with its indexed SHA-256. The illustrated guide remains content version 0.9.3; no dependency was added.
 - Local delivery targets C:/Users/DELL/Desktop/APP/PYeyedata-0.9.10.exe, preserving 0.9.9 and unrelated desktop files. All inputs are committed before release.cmd; no remote push or GitHub publication is included.
 - This entry records build inputs. Actual source/frozen diagnostics, embedded hashes, native notice reconciliation, PE version, exact commit and executable SHA-256 are authoritative in output release-info.json. Real-device, clean-host and native DPI validation are not asserted.
+- Initial frozen validation exposed an overbroad statsmodels.api probe absent from the bundle. The product uses statsmodels.formula.api for its mixed-model backend, which is present in the frozen archive; aligned the import probe to that actual consumer and added its mixedlm availability assertion plus a persisted environment report. Rebuilding from the corrected committed inputs; final release-info.json remains authoritative.
 
 ### 2026-10-31 — Unreleased: environment inspection and one-click dependency repair
 

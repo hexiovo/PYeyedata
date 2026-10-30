@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from importlib import metadata
+import json
 from pathlib import Path
 import sys
 import time
@@ -28,6 +29,10 @@ def run_environment_checks(app, workspace: Path) -> dict:
             continue
         raise RuntimeError("Environment probe accepted malformed or duplicate pins")
     checks["invalid_pins_rejected"] = True
+    checks["statistics_probe_matches_product_backend"] = (
+        env.RUNTIME_MODULES["statsmodels"] == "statsmodels.formula.api"
+        and callable(getattr(env.importlib.import_module(env.RUNTIME_MODULES["statsmodels"]), "mixedlm", None))
+    )
     with patch.object(env.metadata, "version", side_effect=metadata.PackageNotFoundError()):
         report = env.inspect_environment({"numpy": "1.26.4"}, frozen=True)
     checks["frozen_missing_metadata_uses_loaded_version"] = report["rows"][0]["state"] == "ok"
@@ -65,6 +70,8 @@ def run_environment_checks(app, workspace: Path) -> dict:
     dialog.show()
     app.processEvents()
     wait_idle(dialog)
+    (workspace / "environment-report.json").write_text(
+        json.dumps(dialog.report, ensure_ascii=False, indent=2), encoding="utf-8")
     checks["real_environment_probe_completes"] = bool(dialog.report and dialog.report.get("passed"))
     checks["healthy_environment_needs_no_install"] = not dialog.install_button.isEnabled()
     dialog.grab().save(str(workspace / "environment-check.png"))

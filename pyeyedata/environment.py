@@ -16,7 +16,7 @@ RUNTIME_MODULES = {
     "numpy": "numpy", "pandas": "pandas", "scipy": "scipy",
     "matplotlib": "matplotlib", "pyside6-essentials": "PySide6.QtWidgets",
     "shiboken6": "shiboken6", "openpyxl": "openpyxl", "reportlab": "reportlab",
-    "fonttools": "fontTools", "statsmodels": "statsmodels.api", "patsy": "patsy",
+    "fonttools": "fontTools", "statsmodels": "statsmodels.formula.api", "patsy": "patsy",
     "multimatch-gaze": "multimatch_gaze", "pillow": "PIL",
 }
 BUILD_TOOLS = {"altgraph", "iniconfig", "pefile", "pluggy", "pyinstaller",
