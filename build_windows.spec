@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from pathlib import PurePosixPath
 import sys
+from types import SimpleNamespace
 
 
 PROJECT_ROOT = Path(os.environ["PYEYEDATA_PROJECT_ROOT"]).resolve()
@@ -211,7 +212,36 @@ windows_system_exclusion_policy = _exclude_windows_system_os_binaries(a)
 # Analysis so it cannot hash itself or be mistaken for a source-tree resource.
 a.datas.append((MANIFEST_ARCHIVE_PATH, str(MANIFEST_PATH), "DATA"))
 
-analysis_record = collect_analysis_records(a, PROJECT_ROOT)
+splash_image = resource_root / "branding" / "pyeyedata-splash.png"
+splash = Splash(
+    str(splash_image),
+    binaries=a.binaries,
+    datas=a.datas,
+    text_pos=None,
+    always_on_top=True,
+)
+
+# Splash performs a separate Tcl/Tk dependency scan. Apply the same reviewed
+# System32 policy to that TOC before handing it to EXE, and record it alongside
+# the regular Analysis inventory below.
+splash_analysis = SimpleNamespace(binaries=list(splash.binaries))
+splash_windows_system_exclusion_policy = _exclude_windows_system_os_binaries(
+    splash_analysis
+)
+splash.binaries[:] = splash_analysis.binaries
+splash_binary_rows = [
+    row for row in splash.binaries if len(row) > 2 and str(row[2]).upper() == "BINARY"
+]
+splash_data_rows = [
+    row for row in splash.binaries if len(row) > 2 and str(row[2]).upper() != "BINARY"
+]
+
+analysis_record = collect_analysis_records(
+    a,
+    PROJECT_ROOT,
+    extra_binaries=splash_binary_rows,
+    extra_datas=splash_data_rows,
+)
 analysis_record["build_phase"] = BUILD_PHASE
 analysis_record["manifest_archive_path"] = MANIFEST_ARCHIVE_PATH
 analysis_record["manifest_sha256"] = __import__("hashlib").sha256(
@@ -222,8 +252,19 @@ analysis_record["windows_system_exclusion_policy"] = windows_system_exclusion_po
 analysis_record["analysis_counts"] = {
     "scripts": len(a.scripts),
     "pure": len(a.pure),
-    "binaries": len(a.binaries),
-    "datas": len(a.datas),
+    "binaries": len(analysis_record["binaries"]),
+    "datas": len(analysis_record["datas"]),
+    "splash_binary_toc_rows": len(splash_binary_rows),
+    "splash_data_toc_rows": len(splash_data_rows),
+}
+analysis_record["splash_target"] = {
+    "enabled": True,
+    "image_resource": "pyeyedata/resources/branding/pyeyedata-splash.png",
+    "image_sha256": hashlib.sha256(splash_image.read_bytes()).hexdigest(),
+    "tcl_shared_library": str(splash.tcl_lib),
+    "tk_shared_library": str(splash.tk_lib),
+    "requirements": sorted(splash.splash_requirements, key=str.casefold),
+    "system32_exclusion_policy": splash_windows_system_exclusion_policy,
 }
 evidence_path = RUN_ROOT / "evidence" / f"d02-analysis-{BUILD_PHASE}-v1.json"
 evidence_path.parent.mkdir(parents=True, exist_ok=True)
@@ -235,6 +276,8 @@ exe = EXE(
     a.scripts,
     a.binaries,
     a.datas,
+    splash,
+    splash.binaries,
     [],
     name="PYeyedata",
     debug=False,

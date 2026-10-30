@@ -19,6 +19,28 @@ PathKind = Literal["cache", "logs", "settings"]
 _PATH_KINDS = frozenset({"cache", "logs", "settings"})
 
 
+def close_bootloader_splash() -> bool:
+    """Close an optional PyInstaller splash without affecting source runs.
+
+    The splash is owned by PyInstaller's one-file bootloader. Keep this helper
+    in the pure-stdlib bootstrap so startup failures can close it before Qt is
+    imported or the user-facing error is shown.
+    """
+    if not getattr(sys, "frozen", False):
+        return False
+    try:
+        import pyi_splash
+    except Exception:
+        return False
+    try:
+        if not pyi_splash.is_alive():
+            return False
+        pyi_splash.close()
+    except Exception:
+        return False
+    return True
+
+
 def verify_runtime_sources() -> dict[str, str]:
     """Reject mixed application trees before running work; report actual origins.
 

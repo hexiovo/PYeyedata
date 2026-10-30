@@ -1,6 +1,6 @@
 {
   "schema": "pyeyedata.resource-index/v1",
-  "resource_version": "c03-resources/v3",
+  "resource_version": "c03-resources/v4",
   "contract_version": "1.3.0",
   "resource_path_api": "pyeyedata.resource_paths.resource_path(relative_path: str) -> ContextManager[Path]",
   "resource_root": "pyeyedata/resources/",
@@ -125,7 +125,7 @@
   "help_guide": {
     "status": "available",
     "resource_path": "help/PYeyedata-user-guide-zh.pdf",
-    "application_version": "0.9.7",
+    "application_version": "0.9.8",
     "guide_version": "0.9.3",
     "sha256": "89cd778e19c328eb9ae07197532117158aa4edfa34256b72a839173606f2b607",
     "illustrated_chapters": 26,
@@ -139,9 +139,9 @@
     "source_manifest": "fonts/font-source.json",
     "usage": "Keep the resource_path context open through registration and the complete render/export."
   },
-  "application_version": "0.9.7",
+  "application_version": "0.9.8",
   "licenses": {
-    "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 283-entry map and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
+    "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 286-entry map (including the three unique Tcl/Tk Splash dependency binaries) and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
     "source_manifest": "licenses/source-manifest.json",
     "material_sha256": {
       "licenses/APACHE-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
@@ -230,14 +230,15 @@
       "licenses/qt/6.8.3/qtimageformats/libtiff/COPYRIGHT.txt": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7",
       "licenses/qt/6.8.3/qtimageformats/libwebp/COPYING.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
       "licenses/qt/6.8.3/qtimageformats/libwebp/PATENTS.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c",
-      "licenses/source-manifest.json": "208d3d82f37c6f8a80b443e759cbc6ca1d83c21f3be999ed1ffd9956424e6c5d",
+      "licenses/source-manifest.json": "6a71228c8a85634855d24f7911df64e83132afd239c1dc7b415e32c634a94b77",
       "fonts/OFL.txt": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9",
       "licenses/qt/6.8.3/attributions/qtbase-testlib-catch2-qt_attribution.json": "9d48fa7b86e9b0412b699e0411815766914478592da5bbb614a45443c14504b0",
       "licenses/qt/6.8.3/qtbase/testlib/catch2/LICENSE.txt": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566",
       "licenses/qt/6.8.3/attributions/qtbase-testlib-cycle-qt_attribution.json": "a3ff23399b7ece1a0c6a9696e4f8c671a495f92a74c9c53ea5b66f27bd56b056",
       "licenses/qt/6.8.3/qtbase/testlib/cycle/LICENSE.txt": "cb5aedb296c5246d1f22e9099f925a65146f9f0d6b4eebba97fd27a6cdbbab2d",
       "licenses/qt/6.8.3/attributions/qtbase-testlib-valgrind-qt_attribution.json": "9fab633484b2c78f3fdc789f0e9dfda493b425978d2164c06bf86f733bd878bf",
-      "licenses/qt/6.8.3/qtbase/testlib/valgrind/LICENSE.txt": "ec72eebd6326165156787da828caaa18386489387aefaa073c9bd40b8b2a400e"
+      "licenses/qt/6.8.3/qtbase/testlib/valgrind/LICENSE.txt": "ec72eebd6326165156787da828caaa18386489387aefaa073c9bd40b8b2a400e",
+      "licenses/python/CPython-3.12.10-Tcl-Tk-license.txt": "0d1e4405f6273f091732764ed89b57066be63ce64869be6c71ea337dc4f2f9b5"
     }
   },
   "beginner_help": {
@@ -265,5 +266,11 @@
       "help/examples/signals-practice.csv": "db508c88add0dc5f02a4eac89b17a0deefe4c64bca3415c5e4b3e8d123151f64",
       "help/examples/target_movement_intervals-example.csv": "f61172cb6e12101c1ba6e87ad99d122bdadb284740bc5eda589973f3b99d8c2a"
     }
+  },
+  "startup_splash": {
+    "resource_path": "branding/pyeyedata-splash.png",
+    "sha256": "d1eb04e8d800959694f41477bef0418798ed9575c4897c5f2f0b6b694a0f0ae7",
+    "visible_text": "正在启动，请稍候",
+    "purpose": "PyInstaller one-file bootloader splash shown before Python startup"
   }
 }

@@ -2,10 +2,10 @@
   "schema": "pyeyedata.license-source-manifest/v1",
   "application": {
     "name": "PYeyedata",
-    "version": "0.9.7",
+    "version": "0.9.8",
     "prd_version": "0.9"
   },
-  "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 283-entry map and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
+  "status": "Offline license texts and source notices cover the pinned distributions and Qt upstream modules. Release tooling reconciles every actual native Analysis path and binary hash with the maintained 286-entry map (including the three unique Tcl/Tk Splash dependency binaries) and verifies indexed license hashes before packaging. Source links, source digests and rebuild instructions accompany the downloadable Windows release; notices do not grant additional rights beyond the applicable terms.",
   "license_texts": {
     "licenses/LGPL-3.0.txt": {
       "spdx": "LGPL-3.0-only",
@@ -31,6 +31,12 @@
       "spdx": "OFL-1.1",
       "source": "https://raw.githubusercontent.com/google/fonts/a85815a42757630ce188fdad368c2dfc444d4773/ofl/notosanssc/OFL.txt",
       "sha256": "1c05c68c34f9708415aada51f17e1b0092d2cea709bf4a94cd38114f9e73d7d9"
+    },
+    "licenses/python/CPython-3.12.10-Tcl-Tk-license.txt": {
+      "component": "Tcl/Tk license terms bundled with CPython 3.12.10",
+      "source": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip#tcl/tk8.6/license.terms",
+      "source_archive_sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d",
+      "sha256": "0d1e4405f6273f091732764ed89b57066be63ce64869be6c71ea337dc4f2f9b5"
     }
   },
   "source_archives": [
@@ -64,6 +70,13 @@
       "sha256": "049bfb99845e4801672aca07c3c4fc4c140f932a3a33faa899419579e33ef1c8",
       "sha256_sidecar_url": "https://download.qt.io/archive/qt/6.8/6.8.3/submodules/qtimageformats-everywhere-src-6.8.3.tar.xz.sha256",
       "verification": "official Qt SHA-256 sidecar fetched and checked; source archive not downloaded"
+    },
+    {
+      "component": "CPython Windows x64 runtime",
+      "version": "3.12.10",
+      "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip",
+      "sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d",
+      "verification": "Downloaded from the official Python runtime URL; SHA-256 matched the installed runtime __install__.json metadata and the selected Tcl/Tk/zlib files matched the installed runtime and controlled PyInstaller Splash TOC."
     }
   ],
   "frozen_components": [],
@@ -100,6 +113,29 @@
       "previous_rows_unchanged": true,
       "source_tag": "qt/qtbase v6.8.3",
       "notes": "Pinned Test source notices accompany the library; final rebuild inventory is reconciled by release tooling."
+    },
+    "splash_target_addition": {
+      "pyinstaller_version": "6.11.1",
+      "python_runtime": "CPython 3.12.10 Windows x64",
+      "tcl_tk_version": "8.6.15",
+      "runtime_archive_url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip",
+      "runtime_archive_sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d",
+      "unique_native_archive_paths": [
+        "tcl86t.dll",
+        "tk86t.dll",
+        "zlib1.dll"
+      ],
+      "shared_existing_native_archive_path": "VCRUNTIME140.dll (same source hash already mapped)",
+      "splash_data_archive_paths": [
+        "_tk_data/license.terms",
+        "_tk_data/text.tcl",
+        "_tk_data/tk.tcl",
+        "_tk_data/ttk/cursors.tcl",
+        "_tk_data/ttk/fonts.tcl",
+        "_tk_data/ttk/ttk.tcl",
+        "_tk_data/ttk/utils.tcl"
+      ],
+      "scope_note": "Verified with a pinned windowed Qt+Splash harness under the controlled build PATH. The final full application Analysis remains required before release."
     }
   },
   "package_groups": [
@@ -5402,9 +5438,63 @@
         "licenses/QT-SOURCE-AND-REBUILD.md",
         "licenses/packages/pyside6-essentials-6.8.3/PySide6_Essentials-6.8.3.dist-info/LicenseRef-Qt-Commercial.txt"
       ]
+    },
+    {
+      "archive_path": "tcl86t.dll",
+      "typecode": "BINARY",
+      "source_group": "CPython 3.12.10 Windows x64 runtime ZIP",
+      "distribution": "CPython",
+      "distribution_version": "3.12.10",
+      "source_sha256": "b894e0c9a7d2b56f9f202de5044221cfc0938cbd9ffaca6b6793bba486e28081",
+      "source_size_bytes": 1841896,
+      "license_materials": [
+        "licenses/python/CPython-3.12.10-LICENSE.txt",
+        "licenses/python/CPython-3.12.10-Doc-license.txt",
+        "licenses/python/CPython-3.12.10-installed-LICENSE.txt",
+        "licenses/python/CPython-3.12.10-Tcl-Tk-license.txt"
+      ],
+      "source_path": "python-3.12.10-amd64.zip: DLLs/tcl86t.dll",
+      "source_archive_url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip",
+      "source_archive_sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d"
+    },
+    {
+      "archive_path": "tk86t.dll",
+      "typecode": "BINARY",
+      "source_group": "CPython 3.12.10 Windows x64 runtime ZIP",
+      "distribution": "CPython",
+      "distribution_version": "3.12.10",
+      "source_sha256": "3883976d6270c44cf43b0f4e3b925259a36c42f586680a93dfe6a3fdfb5b4939",
+      "source_size_bytes": 1590776,
+      "license_materials": [
+        "licenses/python/CPython-3.12.10-LICENSE.txt",
+        "licenses/python/CPython-3.12.10-Doc-license.txt",
+        "licenses/python/CPython-3.12.10-installed-LICENSE.txt",
+        "licenses/python/CPython-3.12.10-Tcl-Tk-license.txt"
+      ],
+      "source_path": "python-3.12.10-amd64.zip: DLLs/tk86t.dll",
+      "source_archive_url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip",
+      "source_archive_sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d"
+    },
+    {
+      "archive_path": "zlib1.dll",
+      "typecode": "BINARY",
+      "source_group": "CPython 3.12.10 Windows x64 runtime ZIP",
+      "distribution": "CPython",
+      "distribution_version": "3.12.10",
+      "source_sha256": "a3a9487dd7a27be0296731513a5c1d9005bd3acf5861ccbe0aabca3984f51c4f",
+      "source_size_bytes": 148336,
+      "license_materials": [
+        "licenses/python/CPython-3.12.10-LICENSE.txt",
+        "licenses/python/CPython-3.12.10-Doc-license.txt",
+        "licenses/python/CPython-3.12.10-installed-LICENSE.txt",
+        "licenses/qt/6.8.3/qtbase/zlib/LICENSE.txt"
+      ],
+      "source_path": "python-3.12.10-amd64.zip: DLLs/zlib1.dll",
+      "source_archive_url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip",
+      "source_archive_sha256": "8649692de846c56a7189d6dae5c322ab20deb1b5908b6f39426b62a36f39415d"
     }
   ],
-  "native_component_count": 283,
+  "native_component_count": 286,
   "runtime_materials": {
     "cpython": {
       "version": "3.12.10",
@@ -5446,6 +5536,16 @@
           "resource_sha256": "4ccdaaebc0f44b83720ec0399bb7ab329adce067dd62f73c5535a2dc05628ab2",
           "source_size_bytes": 14688,
           "source_group": "et_xmlfile 2.0.0 Python-standard-library notice"
+        },
+        {
+          "resource_path": "licenses/python/CPython-3.12.10-Tcl-Tk-license.txt",
+          "source_url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.zip#tcl/tk8.6/license.terms",
+          "source_group": "CPython 3.12.10 Windows x64 runtime ZIP",
+          "source_method": "Extracted byte-for-byte from the official runtime archive after verifying its SHA-256.",
+          "source_sha256": "0d1e4405f6273f091732764ed89b57066be63ce64869be6c71ea337dc4f2f9b5",
+          "source_size_bytes": 2307,
+          "resource_sha256": "0d1e4405f6273f091732764ed89b57066be63ce64869be6c71ea337dc4f2f9b5",
+          "resource_size_bytes": 2307
         }
       ],
       "runtime_package": {

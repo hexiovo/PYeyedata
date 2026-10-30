@@ -11,6 +11,7 @@ from typing import Any, Callable, Literal, Mapping
 import numpy as np
 import pandas as pd
 from scipy.signal import butter, sosfiltfilt
+from scipy.interpolate import PchipInterpolator
 
 from .contracts import CONTRACT_VERSION, ContractError, NormalizedDataset
 from .eye_streams import EyeSelectionConfig, derive_eye_streams, _snapshot_eye_stream_inputs
@@ -45,6 +46,12 @@ class ProcessingConfig:
     support_gap_max_s: float | None = None
     interpolate_gaze: bool = False
     interpolate_pupil: bool = False
+    pupil_interpolation_method: Literal["linear", "pchip"] = "linear"
+    pupil_speed_mad_enabled: bool = False
+    pupil_speed_mad_n: int = 20
+    pupil_blink_padding_enabled: bool = False
+    pupil_blink_padding_before_s: float = 0.050
+    pupil_blink_padding_after_s: float = 0.150
     gaze_max_gap_s: float = 0.075
     pupil_max_gap_s: float = 0.200
     max_missing_samples: int = 3
@@ -67,11 +74,13 @@ class ProcessingConfig:
         for name, choices in (
             ("order_policy", ("require_monotonic", "sort_by_time")),
             ("duplicate_policy", ("reject", "retain_with_flag")),
+            ("pupil_interpolation_method", ("linear", "pchip")),
         ):
             value = getattr(self, name)
             if not isinstance(value, str) or value not in choices:
                 raise ProcessingError(f"{name} must be one of {choices}")
-        for name in ("interpolate_gaze", "interpolate_pupil", "allow_unverified_interpolation_bounds"):
+        for name in ("interpolate_gaze", "interpolate_pupil", "pupil_speed_mad_enabled",
+                     "pupil_blink_padding_enabled", "allow_unverified_interpolation_bounds"):
             if not isinstance(getattr(self, name), bool):
                 raise ProcessingError(f"{name} must be bool (True or False)")
         finite_real("support_gap_factor", self.support_gap_factor)
@@ -84,10 +93,14 @@ class ProcessingConfig:
             finite_real(name, value)
             if value <= 0:
                 raise ProcessingError(f"{name} must be positive")
-        for name in ("max_missing_samples", "lowpass_order"):
+        for name in ("max_missing_samples", "lowpass_order", "pupil_speed_mad_n"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, Integral) or value < 1:
                 raise ProcessingError(f"{name} must be a positive integer (not bool)")
+        for name in ("pupil_blink_padding_before_s", "pupil_blink_padding_after_s"):
+            finite_real(name, getattr(self, name))
+            if getattr(self, name) < 0:
+                raise ProcessingError(f"{name} must be zero or greater")
         finite_real("baseline_min_coverage", self.baseline_min_coverage)
         if not 0 < self.baseline_min_coverage <= 1:
             raise ProcessingError("baseline_min_coverage must be within (0, 1]")
@@ -117,6 +130,12 @@ class ProcessingConfig:
             "support_gap_max_s": self.support_gap_max_s,
             "interpolate_gaze": self.interpolate_gaze,
             "interpolate_pupil": self.interpolate_pupil,
+            "pupil_interpolation_method": self.pupil_interpolation_method,
+            "pupil_speed_mad_enabled": self.pupil_speed_mad_enabled,
+            "pupil_speed_mad_n": self.pupil_speed_mad_n,
+            "pupil_blink_padding_enabled": self.pupil_blink_padding_enabled,
+            "pupil_blink_padding_before_s": self.pupil_blink_padding_before_s,
+            "pupil_blink_padding_after_s": self.pupil_blink_padding_after_s,
             "gaze_max_gap_s": self.gaze_max_gap_s,
             "pupil_max_gap_s": self.pupil_max_gap_s,
             "max_missing_samples": self.max_missing_samples,
@@ -157,11 +176,23 @@ class _BaseProcessingArtifact:
     stream_keys: list[str]
     raw_event_frame: pd.DataFrame
     baseline_audit: list[dict[str, Any]]
+    pupil_preprocessing_audit: list[dict[str, Any]]
     label_derivations: pd.DataFrame
 
 
-PROCESSING_STAGE_VERSION = "base-processing-1.2.0/v1"
+PROCESSING_STAGE_VERSION = "base-processing-1.3.0/v1"
 EYE_STAGE_VERSION = "eye-stream-derivation/v1"
+
+PUPIL_PREPROCESSING_SOURCE_REFS = (
+    {"method": "speed_mad", "citation": "Ong et al. (2025), Sensors 25(15), 4737",
+     "doi": "10.3390/s25154737"},
+    {"method": "pchip", "citation": "Ong et al. (2025), Sensors 25(15), 4737",
+     "doi": "10.3390/s25154737"},
+    {"method": "pchip_and_blink_loss_padding", "citation": "Scientific Reports (2026), s41598-026-48654-5",
+     "doi": "10.1038/s41598-026-48654-5"},
+    {"method": "provenance_and_quality_reporting", "citation": "Schwartz et al. (2026), Psychophysiology 63(8), e70375",
+     "doi": "10.1111/psyp.70375"},
+)
 
 
 def _record_cache_calculation(transaction, stage, key, version, operation, status_for):
@@ -315,6 +346,21 @@ def _process_base(signals, config, *, segments=None, overlap_policy="require_res
     frame["analysis_pupil_left_status"] = _validity_status(frame, ("pupil_left",), "source_pupil_left_valid")
     frame["analysis_pupil_right_status"] = _validity_status(frame, ("pupil_right",), "source_pupil_right_valid")
 
+    pupil_preprocessing_audit = _apply_pupil_artifact_masks(frame, support_keys, settings)
+    for eye in ("left", "right"):
+        valid_column = f"analysis_pupil_{eye}_valid"
+        status_column = f"analysis_pupil_{eye}_status"
+        source_column = f"source_pupil_{eye}_valid"
+        value_column = f"pupil_{eye}"
+        rejected_column = f"pupil_{eye}_speed_mad_rejected"
+        padded_column = f"pupil_{eye}_blink_loss_padded"
+        interpolation_status_column = f"pupil_{eye}_interpolation_status"
+        frame[interpolation_status_column] = pd.Series("not_requested", index=frame.index, dtype="string")
+        frame[valid_column] = _signal_valid(frame, (value_column,), source_column)
+        frame[status_column] = _validity_status(frame, (value_column,), source_column)
+        frame.loc[frame[padded_column], status_column] = "blink_loss_padded"
+        frame.loc[frame[rejected_column], status_column] = "speed_mad_rejected"
+
     if settings.interpolate_gaze:
         _backup_raw(frame, ("gaze_x", "gaze_y"))
         for _, positions in _groups(frame, support_keys):
@@ -332,17 +378,47 @@ def _process_base(signals, config, *, segments=None, overlap_policy="require_res
         logs.append("gaze_short_gap_interpolation_enabled; source values retained in raw__ columns")
     if settings.interpolate_pupil:
         _backup_raw(frame, ("pupil_left", "pupil_right"))
-        for _, positions in _groups(frame, support_keys):
+        for group_key, positions in _groups(frame, support_keys):
+            key_tuple = group_key if isinstance(group_key, tuple) else (group_key,)
+            stream_id = {name: _audit_scalar(value) for name, value in zip(support_keys, key_tuple)}
             for column, valid_column, flag_column, source_valid in (
                 ("pupil_left", "analysis_pupil_left_valid", "pupil_left_interpolated", "source_pupil_left_valid"),
                 ("pupil_right", "analysis_pupil_right_valid", "pupil_right_interpolated", "source_pupil_right_valid"),
             ):
-                _interpolate_column(frame, positions, column, valid_column, flag_column,
-                                    settings.pupil_max_gap_s, settings, source_valid)
+                stats = _interpolate_column(frame, positions, column, valid_column, flag_column,
+                                            settings.pupil_max_gap_s, settings, source_valid,
+                                            method=settings.pupil_interpolation_method,
+                                            status_column=f"{column}_interpolation_status")
+                pupil_preprocessing_audit.append({
+                    **stream_id, "stage": "interpolation", "eye": column.removeprefix("pupil_"),
+                    "method": settings.pupil_interpolation_method,
+                    "max_gap_s": settings.pupil_max_gap_s,
+                    "max_missing_samples": settings.max_missing_samples,
+                    **stats,
+                })
         frame["analysis_pupil_left_valid"] = _signal_valid(frame, ("pupil_left",), "source_pupil_left_valid", allow_interpolated="pupil_left_interpolated")
         frame["analysis_pupil_right_valid"] = _signal_valid(frame, ("pupil_right",), "source_pupil_right_valid", allow_interpolated="pupil_right_interpolated")
-        frame.loc[frame["pupil_left_interpolated"], "analysis_pupil_left_status"] = "interpolated"
-        frame.loc[frame["pupil_right_interpolated"], "analysis_pupil_right_status"] = "interpolated"
+        for eye in ("left", "right"):
+            status_column = f"analysis_pupil_{eye}_status"
+            source_column = f"source_pupil_{eye}_valid"
+            value_column = f"pupil_{eye}"
+            interpolated_column = f"pupil_{eye}_interpolated"
+            frame[status_column] = _validity_status(frame, (value_column,), source_column)
+            frame.loc[frame[f"pupil_{eye}_blink_loss_padded"], status_column] = "blink_loss_padded"
+            frame.loc[frame[f"pupil_{eye}_speed_mad_rejected"], status_column] = "speed_mad_rejected"
+            frame.loc[frame[interpolated_column], status_column] = "interpolated"
+            interpolation_status = frame[f"pupil_{eye}_interpolation_status"]
+            explanatory_missing = (
+                frame[value_column].isna()
+                & ~frame[f"pupil_{eye}_blink_loss_padded"]
+                & ~frame[f"pupil_{eye}_speed_mad_rejected"]
+                & interpolation_status.isin((
+                    "pchip_insufficient_anchors", "pchip_discontinuous_support",
+                    "interpolation_sample_bound", "interpolation_untrusted_bounds",
+                    "interpolation_duration_bound", "interpolation_invalid_target_time",
+                ))
+            )
+            frame.loc[explanatory_missing, status_column] = interpolation_status.loc[explanatory_missing]
         logs.append("pupil_interpolation_enabled; source values retained in raw__ columns")
 
     if settings.lowpass_cutoff_hz is not None:
@@ -372,7 +448,8 @@ def _process_base(signals, config, *, segments=None, overlap_policy="require_res
         progress(0.80, "汇总每个明确数据流的质量与时间支持")
     quality = _quality_summary(frame, stream_keys, settings)
     return _BaseProcessingArtifact(frame, quality, source_metadata, logs, relations, stream_keys,
-                                   raw_event_frame, baseline_audit, label_derivations)
+                                   raw_event_frame, baseline_audit, pupil_preprocessing_audit,
+                                   label_derivations)
 
 
 def _process_eyes(raw_event_frame, selected_eye_config, coordinate_contract, cancel, progress):
@@ -441,6 +518,7 @@ def process_signals(
     frame, quality, source_metadata, logs = base.frame, base.quality, base.source_metadata, base.logs
     relations, stream_keys = base.relations, base.stream_keys
     raw_event_frame, baseline_audit = base.raw_event_frame, base.baseline_audit
+    pupil_preprocessing_audit = base.pupil_preprocessing_audit
     label_derivations = base.label_derivations
     selected_eye_config = eye_selection or EyeSelectionConfig(mode="legacy_source")
     selected_event_config = event_detection or EventDetectionConfig()
@@ -450,6 +528,8 @@ def process_signals(
         audit = {
             "contract_version": CONTRACT_VERSION, "processing_config": settings.to_dict(),
             "source_metadata": source_metadata, "execution_status": "cancelled",
+            "processing_schema_version": "1.3.0",
+            "pupil_preprocessing": _pupil_preprocessing_audit(settings, pupil_preprocessing_audit),
         }
         return ProcessingResult(frame, quality, audit, "cancelled", logs,
                                 processing_partitions=relations.processing_partitions,
@@ -479,7 +559,8 @@ def process_signals(
         audit = {
             "contract_version": CONTRACT_VERSION, "processing_config": settings.to_dict(),
             "eye_selection_config": selected_eye_config.to_dict(), "source_metadata": source_metadata,
-            "execution_status": "cancelled",
+            "execution_status": "cancelled", "processing_schema_version": "1.3.0",
+            "pupil_preprocessing": _pupil_preprocessing_audit(settings, pupil_preprocessing_audit),
         }
         return ProcessingResult(frame, quality, audit, "cancelled", logs, analysis_streams=analysis_streams,
                                 processing_partitions=relations.processing_partitions,
@@ -525,7 +606,8 @@ def process_signals(
         "duplicate_policy": settings.duplicate_policy,
         "quality_streams": int(len(quality)),
         "baseline_windows": baseline_audit,
-        "processing_schema_version": "1.2.0",
+        "processing_schema_version": "1.3.0",
+        "pupil_preprocessing": _pupil_preprocessing_audit(settings, pupil_preprocessing_audit),
         "scope_blocked": relations.blocked,
         "scope_block_reason": relations.reason,
         "n_processing_partitions": int(len(relations.processing_partitions)),
@@ -641,6 +723,141 @@ def _backup_raw(frame: pd.DataFrame, columns: tuple[str, ...]) -> None:
             frame[name] = frame[column].copy(deep=True)
 
 
+def _pupil_loss_seeds(frame: pd.DataFrame, positions: np.ndarray, eye: str,
+                      values: np.ndarray, source_valid: pd.Series) -> np.ndarray:
+    finite = np.isfinite(values)
+    seeds = ~finite | source_valid.eq(False).fillna(False).to_numpy(dtype=bool)
+    # Some trackers encode loss as zero. Respect an explicit source-valid flag
+    # when present; otherwise a zero cannot be distinguished from a sentinel.
+    seeds |= finite & (values == 0) & source_valid.isna().to_numpy(dtype=bool)
+    for column in (f"blink_{eye}_event", f"eyelid_closed_{eye}"):
+        if column in frame:
+            seeds |= frame.loc[positions, column].eq(True).fillna(False).to_numpy(dtype=bool)
+    return seeds
+
+
+def _apply_pupil_artifact_masks(
+    frame: pd.DataFrame,
+    support_keys: list[str],
+    settings: ProcessingConfig,
+) -> list[dict[str, Any]]:
+    eyes = ("left", "right")
+    for eye in eyes:
+        for suffix in ("speed_mad_rejected", "blink_loss_seed", "blink_loss_padded"):
+            frame[f"pupil_{eye}_{suffix}"] = False
+    if not (settings.pupil_blink_padding_enabled or settings.pupil_speed_mad_enabled):
+        return []
+
+    _backup_raw(frame, ("pupil_left", "pupil_right"))
+    audit: list[dict[str, Any]] = []
+    for group_key, positions in _groups(frame, support_keys):
+        times = frame.loc[positions, "time_s"].to_numpy(dtype=np.float64, na_value=np.nan)
+        finite_time_positions = np.flatnonzero(np.isfinite(times))
+        finite_times = times[finite_time_positions]
+        support_gap = _support_gap_threshold(times, settings)
+        stream_id = {name: _audit_scalar(value) for name, value in
+                     zip(support_keys, group_key if isinstance(group_key, tuple) else (group_key,))}
+        for eye in eyes:
+            column = f"pupil_{eye}"
+            source_valid_column = f"source_pupil_{eye}_valid"
+            source_valid = frame.loc[positions, source_valid_column]
+            values = pd.to_numeric(frame.loc[positions, column], errors="coerce").to_numpy(
+                dtype=np.float64, na_value=np.nan
+            )
+            local_valid = source_valid.eq(True).fillna(False).to_numpy(dtype=bool)
+            row_duplicates = frame.loc[positions, "time_duplicate"].fillna(False).to_numpy(dtype=bool)
+            seed = (_pupil_loss_seeds(frame, positions, eye, values, source_valid)
+                    if settings.pupil_blink_padding_enabled else np.zeros(len(positions), dtype=bool))
+            padded = seed.copy()
+            if settings.pupil_blink_padding_enabled and len(finite_times):
+                finite_deltas = np.diff(finite_times)
+                if support_gap is None:
+                    split_at = np.arange(1, len(finite_times), dtype=np.int64)
+                else:
+                    discontinuity = ((np.diff(finite_time_positions) != 1) | ~np.isfinite(finite_deltas)
+                                     | (finite_deltas <= 0) | (finite_deltas > support_gap))
+                    split_at = np.flatnonzero(discontinuity) + 1
+                for support_run in np.split(finite_time_positions, split_at):
+                    run_times = times[support_run]
+                    run_seed_times = run_times[seed[support_run]]
+                    if not len(run_seed_times):
+                        continue
+                    range_starts = np.searchsorted(
+                        run_times,
+                        np.nextafter(run_seed_times - settings.pupil_blink_padding_before_s, -np.inf),
+                        side="left",
+                    )
+                    range_ends = np.searchsorted(
+                        run_times,
+                        np.nextafter(run_seed_times + settings.pupil_blink_padding_after_s, np.inf),
+                        side="right",
+                    )
+                    range_delta = np.zeros(len(support_run) + 1, dtype=np.int64)
+                    np.add.at(range_delta, range_starts, 1)
+                    np.add.at(range_delta, range_ends, -1)
+                    padded[support_run] |= np.cumsum(range_delta[:-1]) > 0
+            rejected = np.zeros(len(positions), dtype=bool)
+            speed_values = np.array([], dtype=np.float64)
+            median_speed = mad_speed = threshold = None
+            mad_zero = False
+            rejection_status = "disabled"
+            if settings.pupil_speed_mad_enabled:
+                finite_value = np.isfinite(values) & np.isfinite(times)
+                speed_anchors = finite_value & local_valid & ~row_duplicates & ~padded
+                if len(positions) > 1 and support_gap is not None:
+                    delta_time = np.diff(times)
+                    edge_valid = (speed_anchors[:-1] & speed_anchors[1:] & np.isfinite(delta_time)
+                                  & (delta_time > 0) & (delta_time <= support_gap))
+                    edge_speed = np.full(len(delta_time), np.nan, dtype=np.float64)
+                    delta_value = np.diff(values)
+                    edge_speed[edge_valid] = np.abs(delta_value[edge_valid] / delta_time[edge_valid])
+                    sample_speed = np.full(len(positions), np.nan, dtype=np.float64)
+                    sample_speed[:-1] = np.where(edge_valid, np.fmax(sample_speed[:-1], edge_speed), sample_speed[:-1])
+                    sample_speed[1:] = np.where(edge_valid, np.fmax(sample_speed[1:], edge_speed), sample_speed[1:])
+                    speed_values = sample_speed[np.isfinite(sample_speed)]
+                if len(speed_values):
+                    median_speed = float(np.median(speed_values))
+                    mad_speed = float(np.median(np.abs(speed_values - median_speed)))
+                    threshold = float(median_speed + settings.pupil_speed_mad_n * mad_speed)
+                    mad_zero = mad_speed == 0.0
+                    rejected = (speed_anchors & np.isfinite(sample_speed) & (sample_speed > threshold))
+                    rejection_status = "computed_zero_mad" if mad_zero else "computed"
+                else:
+                    rejection_status = "no_valid_adjacent_source_samples"
+
+            frame.loc[positions[seed], f"pupil_{eye}_blink_loss_seed"] = True
+            frame.loc[positions[padded], f"pupil_{eye}_blink_loss_padded"] = True
+            frame.loc[positions[rejected], f"pupil_{eye}_speed_mad_rejected"] = True
+            masked = padded | rejected
+            if masked.any():
+                frame.loc[positions[masked], column] = pd.NA
+            audit.append({
+                **stream_id,
+                "eye": eye,
+                "blink_loss_padding_enabled": settings.pupil_blink_padding_enabled,
+                "n_blink_loss_seed_samples": int(seed.sum()),
+                "n_blink_loss_padded_samples": int(padded.sum()),
+                "speed_mad_enabled": settings.pupil_speed_mad_enabled,
+                "speed_mad_n": settings.pupil_speed_mad_n,
+                "speed_unit": "source pupil unit per second; unspecified when source pupil unit is unknown",
+                "n_speed_samples": int(len(speed_values)),
+                "median_speed": median_speed,
+                "mad_speed": mad_speed,
+                "speed_threshold": threshold,
+                "mad_zero": mad_zero,
+                "mad_zero_manual_review_recommended": bool(settings.pupil_speed_mad_enabled and mad_zero),
+                "speed_mad_status": rejection_status,
+                "n_speed_mad_rejected_samples": int(rejected.sum()),
+                "n_masked_samples": int(masked.sum()),
+                "row_flag_columns": {
+                    "speed_mad_rejected": f"pupil_{eye}_speed_mad_rejected",
+                    "blink_loss_seed": f"pupil_{eye}_blink_loss_seed",
+                    "blink_loss_padded": f"pupil_{eye}_blink_loss_padded",
+                },
+            })
+    return audit
+
+
 def _assign_segments(frame: pd.DataFrame, segments: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
     if "segment_id" not in frame:
         frame["segment_id"] = pd.NA
@@ -692,7 +909,18 @@ def _interpolate_column(
     max_gap_s: float,
     settings: ProcessingConfig,
     source_valid_column: str,
-) -> None:
+    *,
+    method: Literal["linear", "pchip"] = "linear",
+    status_column: str | None = None,
+) -> dict[str, Any]:
+    stats = {
+        "candidate_gap_runs": 0, "interpolated_gap_runs": 0, "interpolated_samples": 0,
+        "skipped_sample_bound": 0, "skipped_untrusted_bounds": 0,
+        "skipped_duration_bound": 0, "skipped_invalid_target_time": 0,
+        "skipped_pchip_insufficient_anchors": 0, "skipped_pchip_discontinuous_support": 0,
+    }
+    if status_column:
+        stats["insertion_provenance"] = []
     pos = np.asarray(positions, dtype=np.int64)
     values = pd.to_numeric(frame.loc[pos, column], errors="coerce").astype("float64").to_numpy()
     times = frame.loc[pos, "time_s"].astype("float64").to_numpy()
@@ -702,9 +930,20 @@ def _interpolate_column(
     if not settings.allow_unverified_interpolation_bounds:
         unknown = source_valid.isna().to_numpy()
         trusted &= ~unknown
+    observation_column = None
+    if status_column:
+        if "observation_id" in frame:
+            observation_column = "observation_id"
+        elif "original_index" in frame:
+            observation_column = "original_index"
+    pchip_support_gap = _support_gap_threshold(times, settings) if method == "pchip" else None
     # Interpolation only fills absent/non-finite samples. A finite source value stays intact
-    # even when the device marked it invalid or its validity semantics are unknown.
+    # even when the device marked it invalid or its validity semantics are unknown. A rejection
+    # or padding flag records the source artifact decision; a short bounded gap can still be
+    # reconstructed, while its flag and raw source value remain available for review.
     missing = ~np.isfinite(values)
+    if status_column and status_column in frame:
+        frame.loc[pos, status_column] = "not_missing"
     i = 0
     while i < len(pos):
         if not missing[i]:
@@ -716,18 +955,80 @@ def _interpolate_column(
         end = i
         left, right = begin - 1, end
         count = end - begin
-        if left < 0 or right >= len(pos) or count > settings.max_missing_samples:
+        stats["candidate_gap_runs"] += 1
+        if count > settings.max_missing_samples:
+            stats["skipped_sample_bound"] += 1
+            if status_column:
+                frame.loc[pos[begin:end], status_column] = "interpolation_sample_bound"
+            continue
+        if left < 0 or right >= len(pos):
+            stats["skipped_untrusted_bounds"] += 1
+            if status_column:
+                frame.loc[pos[begin:end], status_column] = "interpolation_untrusted_bounds"
             continue
         if not (trusted[left] and trusted[right]):
+            stats["skipped_untrusted_bounds"] += 1
+            if status_column:
+                frame.loc[pos[begin:end], status_column] = "interpolation_untrusted_bounds"
             continue
         duration = times[right] - times[left]
         if not np.isfinite(duration) or duration <= 0 or duration > max_gap_s:
+            stats["skipped_duration_bound"] += 1
+            if status_column:
+                frame.loc[pos[begin:end], status_column] = "interpolation_duration_bound"
             continue
         if np.any(~np.isfinite(times[begin:end])):
+            stats["skipped_invalid_target_time"] += 1
+            if status_column:
+                frame.loc[pos[begin:end], status_column] = "interpolation_invalid_target_time"
             continue
-        replacement = np.interp(times[begin:end], [times[left], times[right]], [values[left], values[right]])
+        target_times = times[begin:end]
+        if method == "pchip":
+            anchor_positions = np.asarray([left - 1, left, right, right + 1], dtype=np.int64)
+            if (left < 1 or right + 1 >= len(pos) or not trusted[anchor_positions].all()):
+                stats["skipped_pchip_insufficient_anchors"] += 1
+                if status_column:
+                    frame.loc[pos[begin:end], status_column] = "pchip_insufficient_anchors"
+                continue
+            anchor_times = times[anchor_positions]
+            anchor_values = values[anchor_positions]
+            local_times = times[left - 1:right + 2]
+            local_deltas = np.diff(local_times)
+            if (not np.isfinite(anchor_times).all() or np.any(np.diff(anchor_times) <= 0)
+                    or pchip_support_gap is None or not np.isfinite(local_deltas).all()
+                    or np.any(local_deltas <= 0) or np.any(local_deltas > pchip_support_gap)):
+                stats["skipped_pchip_discontinuous_support"] += 1
+                if status_column:
+                    frame.loc[pos[begin:end], status_column] = "pchip_discontinuous_support"
+                continue
+            replacement = PchipInterpolator(anchor_times, anchor_values, extrapolate=False)(target_times)
+        else:
+            replacement = np.interp(target_times, [times[left], times[right]], [values[left], values[right]])
         frame.loc[pos[begin:end], column] = replacement
         frame.loc[pos[begin:end], flag_column] = True
+        if status_column:
+            frame.loc[pos[begin:end], status_column] = f"interpolated_{method}"
+        if status_column:
+            anchor_offsets = (left - 1, left, right, right + 1) if method == "pchip" else (left, right)
+            target_positions = pos[begin:end]
+            anchor_rows = pos[np.asarray(anchor_offsets, dtype=np.int64)]
+            stats["insertion_provenance"].append({
+                "method": method,
+                "replacement_source": "derived_interpolation; target rows are not observed source measurements",
+                "target_observation_ids": (
+                    [_audit_scalar(value) for value in frame.loc[target_positions, observation_column].tolist()]
+                    if observation_column else target_positions.astype(int).tolist()
+                ),
+                "target_times_s": [float(value) for value in target_times],
+                "anchor_observation_ids": (
+                    [_audit_scalar(value) for value in frame.loc[anchor_rows, observation_column].tolist()]
+                    if observation_column else anchor_rows.astype(int).tolist()
+                ),
+                "anchor_times_s": [float(value) for value in times[np.asarray(anchor_offsets, dtype=np.int64)]],
+            })
+        stats["interpolated_gap_runs"] += 1
+        stats["interpolated_samples"] += count
+    return stats
 
 
 def _apply_lowpass(
@@ -1042,10 +1343,12 @@ def _quality_summary(frame: pd.DataFrame, keys: list[str], settings: ProcessingC
         positive = time_diffs[np.isfinite(time_diffs) & (time_diffs > 0)]
         gap_threshold = _support_gap_threshold(times, settings)
         group_id = {key: value for key, value in zip(keys, group_key if isinstance(group_key, tuple) else (group_key,))}
-        for signal, valid_column, interp_column, source_column in (
-            ("gaze", "analysis_gaze_valid", "gaze_interpolated", "source_gaze_valid"),
-            ("pupil_left", "analysis_pupil_left_valid", "pupil_left_interpolated", "source_pupil_left_valid"),
-            ("pupil_right", "analysis_pupil_right_valid", "pupil_right_interpolated", "source_pupil_right_valid"),
+        for signal, valid_column, interp_column, source_column, mad_column, padded_column, seed_column in (
+            ("gaze", "analysis_gaze_valid", "gaze_interpolated", "source_gaze_valid", None, None, None),
+            ("pupil_left", "analysis_pupil_left_valid", "pupil_left_interpolated", "source_pupil_left_valid",
+             "pupil_left_speed_mad_rejected", "pupil_left_blink_loss_padded", "pupil_left_blink_loss_seed"),
+            ("pupil_right", "analysis_pupil_right_valid", "pupil_right_interpolated", "source_pupil_right_valid",
+             "pupil_right_speed_mad_rejected", "pupil_right_blink_loss_padded", "pupil_right_blink_loss_seed"),
         ):
             valid = group[valid_column].fillna(False).to_numpy(dtype=bool) & time_valid
             interpolated = group[interp_column].to_numpy(dtype=bool) & time_valid
@@ -1062,11 +1365,45 @@ def _quality_summary(frame: pd.DataFrame, keys: list[str], settings: ProcessingC
                 "n_observed": int(observed.sum()),
                 "n_interpolated": int(interpolated.sum()),
                 "n_invalid_or_missing": int((~valid & time_valid).sum()),
+                "n_speed_mad_rejected": int(group[mad_column].fillna(False).sum()) if mad_column else 0,
+                "n_blink_loss_seed": int(group[seed_column].fillna(False).sum()) if seed_column else 0,
+                "n_blink_loss_padded": int(group[padded_column].fillna(False).sum()) if padded_column else 0,
                 "effective_duration_s": support,
                 "support_gap_threshold_s": gap_threshold,
                 "largest_positive_gap_s": float(np.max(positive)) if len(positive) else None,
             })
     return pd.DataFrame.from_records(records)
+
+
+def _pupil_preprocessing_audit(settings: ProcessingConfig, records: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "schema_version": "pupil-preprocessing-audit/v1",
+        "enabled": bool(settings.pupil_speed_mad_enabled or settings.pupil_blink_padding_enabled
+                         or settings.interpolate_pupil),
+        "speed_mad": {
+            "enabled": settings.pupil_speed_mad_enabled,
+            "n": settings.pupil_speed_mad_n,
+            "threshold_formula": "median(speed) + n * median(abs(speed - median(speed)))",
+            "rejection_comparison": "speed > threshold",
+            "speed_formula": "max(abs(previous pupil delta / delta_s), abs(next pupil delta / delta_s))",
+        },
+        "blink_loss_padding": {
+            "enabled": settings.pupil_blink_padding_enabled,
+            "before_s": settings.pupil_blink_padding_before_s,
+            "after_s": settings.pupil_blink_padding_after_s,
+            "seed_rule": "nonfinite or explicitly invalid pupil sample, explicit per-eye blink/closed marker, or zero with unknown source-validity",
+        },
+        "interpolation": {
+            "enabled": settings.interpolate_pupil,
+            "method": settings.pupil_interpolation_method,
+            "max_gap_s": settings.pupil_max_gap_s,
+            "max_missing_samples": settings.max_missing_samples,
+            "pchip_valid_anchors_each_side": 2,
+            "pchip_extrapolation": False,
+        },
+        "source_references": [dict(item) for item in PUPIL_PREPROCESSING_SOURCE_REFS],
+        "stream_audit": records,
+    }
 
 
 def _valid_support_duration(times: np.ndarray, valid: np.ndarray, max_gap_s: float | None) -> float | None:
@@ -1096,7 +1433,9 @@ def _cancelled(frame: pd.DataFrame, config: ProcessingConfig, metadata: dict[str
         signals=frame,
         quality=pd.DataFrame(),
         audit={"contract_version": "1.0.0", "processing_config": config.to_dict(),
-               "source_metadata": metadata, "execution_status": "cancelled"},
+               "source_metadata": metadata, "execution_status": "cancelled",
+               "processing_schema_version": "1.3.0",
+               "pupil_preprocessing": _pupil_preprocessing_audit(config, [])},
         execution_status="cancelled",
         logs=logs + [message],
     )

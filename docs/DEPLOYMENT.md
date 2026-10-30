@@ -2,17 +2,21 @@
 
 ## 直接使用：不安装 Python
 
-打开 [最新 Release](https://github.com/hexiovo/PYeyedata/releases/latest)，下载 `PYeyedata-0.9.7-windows-x64.zip`，解压后双击 `PYeyedata.exe`。也可直接下载同版本的 `windows-x64.exe` 单文件运行。系统要求 Windows 10/11 x64，无需管理员权限、Python、Qt 安装或额外服务。首次启动需解压内置运行库，请留出临时磁盘空间。
+打开 [最新 Release](https://github.com/hexiovo/PYeyedata/releases/latest)，下载 `PYeyedata-0.9.8-windows-x64.zip`，解压后双击 `PYeyedata.exe`。也可直接下载同版本的 `windows-x64.exe` 单文件运行。系统要求 Windows 10/11 x64，无需管理员权限、Python、Qt 安装或额外服务。首次启动需解压内置运行库，请留出临时磁盘空间。
 
 程序目前没有代码签名；若系统提示来源，先确认来自上述仓库并核对 `SHA256SUMS.txt`。PowerShell 校验下载文件：
 
 ```powershell
-Get-FileHash .\PYeyedata-0.9.7-windows-x64.zip -Algorithm SHA256
+Get-FileHash .\PYeyedata-0.9.8-windows-x64.zip -Algorithm SHA256
 ```
 
-将哈希与同一 Release 的 `SHA256SUMS.txt` 对应行比较。不要在 ZIP 压缩窗口中直接运行。按 F1 或工具栏“全流程图解手册（PDF）”开始；可从帮助菜单导出练习与模板。应用 0.9.7 随附指南内容版本 0.9.3。
+将哈希与同一 Release 的 `SHA256SUMS.txt` 对应行比较。不要在 ZIP 压缩窗口中直接运行。按 F1 或工具栏“全流程图解手册（PDF）”开始；可从帮助菜单导出练习与模板。应用 0.9.8 随附指南内容版本 0.9.3。
 
 升级时解压新版本到新目录并运行。配置、缓存、日志在 `%LOCALAPPDATA%\PYeyedata\`；输入、导出、`.pyea` 档案和 `.pyeplan` 方案仍在自己保存的位置。删除旧 EXE 不会自动删除用户数据。复制程序到另一台主机不会自动带走这些数据，所需档案请自行复制。
+
+## 启动画面
+
+由本仓库构建的单文件 EXE 会在 PyInstaller 启动器解压内置运行库时显示“正在启动，请稍候…”画面，随后才开始 Python 启动。主窗口可见后，启动器自动关闭该画面；启动失败时也会先关闭，再显示错误信息。源码运行继续使用 Qt 启动指示器。启动画面改善首次反馈，不会缩短运行库解压或应用模块加载所需时间。
 
 ## 开发主机：三条入口
 
@@ -30,7 +34,7 @@ Get-FileHash .\PYeyedata-0.9.7-windows-x64.zip -Algorithm SHA256
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Check
-.\release.cmd -Output "D:\releases\PYeyedata-0.9.7"
+.\release.cmd -Output "D:\releases\PYeyedata-0.9.8"
 ```
 
 发布目录必须是源码目录以外的**全新目录**，默认使用系统临时目录并打印位置。打包时需 Git 和干净提交；下载的 GitHub source.zip 可启动开发，但正式打包应使用 Git 克隆。临时诊断数据和构建文件保留在输出目录供排错，上传仅用其中 `assets/`。不要在构建过程中修改源码或版本记录。
@@ -43,10 +47,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Che
 
 ```powershell
 git push origin master
-git tag v0.9.7
-git push origin v0.9.7
-$releaseAssets = Get-ChildItem -File 'D:\releases\PYeyedata-0.9.7\assets' | ForEach-Object FullName
-gh release create v0.9.7 @releaseAssets --verify-tag --title 'PYeyedata v0.9.7' --notes-file docs/RELEASE_NOTES.md
+git tag v0.9.8
+git push origin v0.9.8
+$releaseAssets = Get-ChildItem -File 'D:\releases\PYeyedata-0.9.8\assets' | ForEach-Object FullName
+gh release create v0.9.8 @releaseAssets --verify-tag --title 'PYeyedata v0.9.8' --notes-file docs/RELEASE_NOTES.md
 ```
 
 以上版本只作当前版示例，已有 Release 不要重复创建。也可在 GitHub Actions 手动运行 **Windows release**，输入已推送且与 APP_VERSION 一致的新标签；远程 Windows 2022 构建机使用 Python 3.12.10、相同脚本并发布 Release。本地发布与远程发布二选一，工作流不会因推送标签自动重复打包。远程工作流尚需在 GitHub 实际运行后才能确认该运行器的兼容性。

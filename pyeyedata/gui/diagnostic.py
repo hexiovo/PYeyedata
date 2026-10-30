@@ -1949,6 +1949,20 @@ def _run_reliability_smoke(app: Any, window: Any, workspace: Path,
         )
     evidence["task_timing_diagnostic"] = timing_evidence
 
+    from .diagnostic_preprocessing import run_preprocessing_diagnostic
+
+    preprocessing_evidence = run_preprocessing_diagnostic(app=app, workspace=workspace)
+    if preprocessing_evidence.get("status") != "passed":
+        raise RuntimeError("pupil preprocessing diagnostics failed")
+    evidence["pupil_preprocessing_diagnostic"] = preprocessing_evidence
+
+    from .diagnostic_design_presets import run_design_presets_diagnostic
+
+    design_presets_evidence = run_design_presets_diagnostic(app=app, workspace=workspace)
+    if design_presets_evidence.get("status") != "passed":
+        raise RuntimeError("statistics preset diagnostics failed")
+    evidence["statistics_design_presets_diagnostic"] = design_presets_evidence
+
     evidence["reliability_smoke"] = {
         "status": "pass",
         "parameter_validation": {

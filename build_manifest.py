@@ -139,7 +139,8 @@ def create_build_manifest(project_root: Path) -> dict[str, Any]:
             "tools/run_checks.py", "tools/release_windows.py",
             "README.md", "AGENTS.md", "CODEX_HANDOFF.md",
             "docs/DEPLOYMENT.md", "docs/RELEASE_NOTES.md", "docs/WORKFLOW_ENHANCEMENTS.md",
-            "docs/COMMON_METRICS.md", "plans/common-eye-metrics.md",
+            "docs/COMMON_METRICS.md", "docs/STATISTICS_PRESETS.md",
+            "docs/PREPROCESSING_OPTIONS.md", "plans/common-eye-metrics.md",
             ".github/workflows/release.yml",
         )
     )
@@ -189,8 +190,19 @@ def _source_hash(path_text: str) -> str | None:
     return sha256_file(path)
 
 
-def collect_analysis_records(analysis: Any, project_root: Path) -> dict[str, Any]:
-    """Capture PyInstaller's actual Analysis/TOC rows with source hashes."""
+def collect_analysis_records(
+    analysis: Any,
+    project_root: Path,
+    *,
+    extra_binaries: Iterable[tuple[Any, ...]] = (),
+    extra_datas: Iterable[tuple[Any, ...]] = (),
+) -> dict[str, Any]:
+    """Capture PyInstaller's actual Analysis/TOC rows with source hashes.
+
+    Targets such as PyInstaller's one-file splash have their own TOC. Pass
+    those rows here so native inventory and data evidence describe the same
+    payload that is handed to ``EXE``.
+    """
     project_root = project_root.resolve()
 
     def rows(toc: Iterable[tuple[Any, ...]], kind: str) -> list[dict[str, Any]]:
@@ -222,6 +234,45 @@ def collect_analysis_records(analysis: Any, project_root: Path) -> dict[str, Any
             result.append(record)
         return sorted(result, key=lambda row: (row["archive_path"], row["source_path"]))
 
+    def combine_toc_rows(
+        primary: Iterable[tuple[Any, ...]],
+        additional: Iterable[tuple[Any, ...]],
+        *,
+        kind: str,
+    ) -> list[tuple[Any, ...]]:
+        combined: dict[str, tuple[Any, ...]] = {}
+        for entry in (*primary, *additional):
+            if len(entry) < 2:
+                continue
+            archive_path = str(entry[0]).replace("\\", "/")
+            key = archive_path.casefold()
+            prior = combined.get(key)
+            if prior is None:
+                combined[key] = entry
+                continue
+
+            prior_typecode = str(prior[2]) if len(prior) > 2 else kind.upper()
+            current_typecode = str(entry[2]) if len(entry) > 2 else kind.upper()
+            prior_path = Path(str(prior[1]))
+            current_path = Path(str(entry[1]))
+            same_source = (
+                os.path.normcase(os.path.abspath(os.path.normpath(str(prior_path))))
+                == os.path.normcase(os.path.abspath(os.path.normpath(str(current_path))))
+            )
+            same_bytes = (
+                prior_path.is_file()
+                and current_path.is_file()
+                and sha256_file(prior_path) == sha256_file(current_path)
+            )
+            if prior_typecode != current_typecode or not (same_source or same_bytes):
+                raise RuntimeError(
+                    f"Conflicting PyInstaller {kind} TOC rows for {archive_path}: "
+                    f"{prior_path} ({prior_typecode}) vs {current_path} ({current_typecode})"
+                )
+        return [combined[key] for key in sorted(combined)]
+
+    binaries = combine_toc_rows(analysis.binaries, extra_binaries, kind="binary")
+    datas = combine_toc_rows(analysis.datas, extra_datas, kind="data")
     return {
         "schema": "pyeyedata.pyinstaller-analysis/v1",
         "pyinstaller": __import__("PyInstaller").__version__,
@@ -230,7 +281,7 @@ def collect_analysis_records(analysis: Any, project_root: Path) -> dict[str, Any
         "architecture": platform.machine() or "unknown",
         "scripts": rows(analysis.scripts, "script"),
         "pure": rows(analysis.pure, "pure"),
-        "binaries": rows(analysis.binaries, "binary"),
-        "datas": rows(analysis.datas, "data"),
+        "binaries": rows(binaries, "binary"),
+        "datas": rows(datas, "data"),
     }
 

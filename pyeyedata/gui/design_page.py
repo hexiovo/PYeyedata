@@ -40,6 +40,32 @@ _PERFORMANCE_TYPES = ("unknown", "continuous", "ordinal", "binary", "count", "bo
 _LMM_TEMPLATES = ("subject_intercept", "subject_condition_slope", "nested_team", "within_between")
 _FIXED_TERMS = ("group", "condition", "interaction")
 
+_STATISTICS_PRESETS = (
+    ("descriptive", "仅描述统计", "unknown", "unknown", "unknown"),
+    ("independent_two", "独立两组比较（连续结果）", "independent", "continuous", "subject"),
+    ("independent_multi", "独立多组比较（连续结果）", "independent", "continuous", "subject"),
+    ("paired", "配对前后比较（连续结果）", "paired", "continuous", "subject"),
+    ("repeated", "单因素重复测量（连续结果）", "repeated", "continuous", "subject"),
+    ("lmm_subject_intercept", "混合模型：被试随机截距（连续结果）", "lmm", "continuous", "subject"),
+    ("pearson", "Pearson 相关（连续绩效）", "correlation", "continuous", "subject"),
+    ("spearman", "Spearman 相关（等级 / 单调绩效）", "correlation", "continuous", "subject"),
+    ("within_pearson", "被试内重复 Pearson（连续绩效）", "within_correlation", "continuous", "subject"),
+    ("team_independent", "独立团队比较（连续结果）", "team_independent", "continuous", "team"),
+)
+
+_PRESET_HELP = {
+    "descriptive": "只汇总数据，不声明推断设计。若要比较或相关，请选择其他预设并补充研究者声明。",
+    "independent_two": "这是独立组设计起点。后端按筛选后实际保留水平自动路由：恰好 2 组用 Welch t；3 组及以上用 Welch ANOVA 和 Games–Howell。本预设不会把水平数锁为 2。",
+    "independent_multi": "这是独立组设计起点。后端仍按筛选后实际保留水平自动路由：恰好 2 组用 Welch t；3 组及以上用 Welch ANOVA 和 Games–Howell。请核对实际组别和水平范围。",
+    "paired": "仅用于同一独立单位在两个条件下的一一配对数据；若有 3 个及以上条件，请改用重复测量预设。",
+    "repeated": "适用于同一独立单位的多条件数据。后端按条件数、完整配对和重复结构选择已实现的方法；不平衡或重复试次可能转入指定 LMM 或保留阻断。",
+    "lmm_subject_intercept": "使用已有 subject_intercept 模板；需有每个独立单位的重复观测。模型不自动添加协变量或性能目标。",
+    "pearson": "每个 metric 与明确选择的连续绩效列作独立单位层面的线性相关。绩效列和连接键必须由你填写并核对。",
+    "spearman": "每个 metric 与明确声明的绩效列作等级 / 单调相关。等级绩效需在高级选项中逐列声明为 ordinal；重复观测 Spearman 不支持。",
+    "within_pearson": "用于每个独立单位有重复观测的 Pearson 被试内相关；绩效列和一对一连接键需由你填写。重复 Spearman 不支持。",
+    "team_independent": "独立单位是团队。请填写真实团队 ID 列，并由研究者确认独立性、说明依据；pair 行不能作为独立团队数。",
+}
+
 _OPTION_SPECS: dict[str, tuple[str, Any, str]] = {
     "strata_columns": ("list", [], "显式分层列；每个 metric × stratum 独立建假设。"),
     "metric_types": ("metric_types", {}, "按 metric ID 明确连续、等级或其他结果类型；未声明的类型不推断。"),
@@ -450,6 +476,12 @@ class DesignPage(QWidget):
         self._metric_frame = pd.DataFrame()
         self._performance_frame = pd.DataFrame()
         self._loading_design = False
+        self._applying_preset = False
+        self._active_preset_id: str | None = None
+        self._preset_applied_values: dict[str, Any] | None = None
+        self._design_labels: dict[str, QLabel] = {}
+        self._option_rows: dict[str, tuple[QLabel, QWidget, QLabel]] = {}
+        self._visibility_state: tuple[bool, str] | None = None
 
         root = QVBoxLayout(self)
         heading = QLabel("研究设计与统计", self)
@@ -462,6 +494,19 @@ class DesignPage(QWidget):
         )
         intro.setWordWrap(True)
         root.addWidget(intro)
+
+        self.advanced_toggle = QCheckBox("显示全部设计字段与高级统计选项", self)
+        self.advanced_toggle.setToolTip("展开完整 DesignSpec 和全部模型、分层、比较族选项；收起时保存值仍保留。")
+        root.addWidget(self.advanced_toggle)
+        summary_row = QHBoxLayout()
+        self.settings_summary_label = QLabel(self)
+        self.settings_summary_label.setWordWrap(True)
+        self.settings_summary_label.setObjectName("fieldHelp")
+        self.show_advanced_button = QPushButton("查看高级设置", self)
+        self.show_advanced_button.clicked.connect(self._show_advanced_settings)
+        summary_row.addWidget(self.settings_summary_label, 1)
+        summary_row.addWidget(self.show_advanced_button)
+        root.addLayout(summary_row)
 
         self.tabs = QTabWidget(self)
         self.design_tab = QWidget(self.tabs)
@@ -476,6 +521,8 @@ class DesignPage(QWidget):
         self._build_options_tab()
         self._build_results_tab()
         self._connect_change_signals()
+        self.advanced_toggle.toggled.connect(self._update_simple_advanced_visibility)
+        self.tabs.currentChanged.connect(lambda *_: self._refresh_settings_summary())
         self.set_design_spec(DesignSpec())
 
     def _build_design_tab(self) -> None:
@@ -484,6 +531,43 @@ class DesignPage(QWidget):
         scroll.setWidgetResizable(True)
         content = QWidget(scroll)
         layout = QVBoxLayout(content)
+
+        preset_group = QGroupBox("常用统计预设", content)
+        preset_layout = QVBoxLayout(preset_group)
+        preset_row = QHBoxLayout()
+        self.preset_combo = QComboBox(preset_group)
+        self.preset_combo.addItem("选择一个常用预设…", None)
+        for preset_id, label, *_ in _STATISTICS_PRESETS:
+            self.preset_combo.addItem(label, preset_id)
+        self.apply_preset_button = QPushButton("应用预设", preset_group)
+        self.apply_preset_button.setEnabled(False)
+        self.preset_combo.currentIndexChanged.connect(
+            lambda *_: self.apply_preset_button.setEnabled(self.preset_combo.currentData() is not None)
+        )
+        self.preset_combo.currentIndexChanged.connect(lambda *_: self._refresh_preset_preview())
+        self.apply_preset_button.clicked.connect(
+            lambda: self.apply_preset(self.preset_combo.currentData())
+        )
+        preset_row.addWidget(self.preset_combo, 1)
+        preset_row.addWidget(self.apply_preset_button)
+        preset_layout.addLayout(preset_row)
+        self.preset_help_label = QLabel(
+            "预设只填设计起点，不证明假设或独立性；所有列名都要对照当前数据核对。",
+            preset_group,
+        )
+        self.preset_help_label.setWordWrap(True)
+        self.preset_help_label.setObjectName("fieldHelp")
+        preset_layout.addWidget(self.preset_help_label)
+        self.preset_guidance_label = QLabel(preset_group)
+        self.preset_guidance_label.setWordWrap(True)
+        self.preset_guidance_label.setObjectName("designCaution")
+        preset_layout.addWidget(self.preset_guidance_label)
+        preset_layout.addWidget(QLabel(
+            "固定默认：探索性校正 BY、95% CI、Bootstrap 5,000 次（seed 20261011）；锁定值见高级设置。",
+            preset_group,
+        ))
+        layout.addWidget(preset_group)
+
         design_group = QGroupBox("研究设计与结果类型", content)
         self.design_form = QFormLayout(design_group)
         self.design_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
@@ -502,8 +586,18 @@ class DesignPage(QWidget):
             widget = TypedFieldWidget(spec, design_group)
             widget.setObjectName("design_" + name)
             self._design_editors[name] = widget
-            self.design_form.addRow(QLabel(self._field_label(name), design_group), widget)
+            label = QLabel(self._field_label(name), design_group)
+            self._design_labels[name] = label
+            self.design_form.addRow(label, widget)
         layout.addWidget(design_group)
+
+        self.column_suggestion_label = QLabel(
+            "列名是可编辑建议：subject_id、between_group、condition。它们不会自动映射到数据，也不会替你确认独立性。",
+            content,
+        )
+        self.column_suggestion_label.setWordWrap(True)
+        self.column_suggestion_label.setObjectName("fieldHelp")
+        layout.addWidget(self.column_suggestion_label)
 
         self.independence_note = QLabel(
             "独立性确认仅记录研究者声明，不证明随机化或设计有效。共享 pair、同人跨 team、重复条件和多对多绩效键仍由后端检查；不满足时保留描述结果并阻断相应推断。",
@@ -558,6 +652,7 @@ class DesignPage(QWidget):
         self._options_content_layout = layout
 
         self._option_types: dict[str, QWidget] = {}
+        self._option_rows: dict[str, tuple[QLabel, QWidget, QLabel]] = {}
         for name, (kind, default, description) in _OPTION_SPECS.items():
             if kind == "level_selection":
                 editor = _LevelSelectionEditor(content)
@@ -604,12 +699,14 @@ class DesignPage(QWidget):
             editor.setToolTip(description)
             self._option_types[name] = editor
             self._option_defaults[name] = default
-            self._options_content_layout.addWidget(QLabel(self._option_label(name), content))
+            label = QLabel(self._option_label(name), content)
+            self._options_content_layout.addWidget(label)
             self._options_content_layout.addWidget(editor)
             note = QLabel(description, content)
             note.setWordWrap(True)
             note.setObjectName("fieldHelp")
             self._options_content_layout.addWidget(note)
+            self._option_rows[name] = (label, editor, note)
         self._option_editors = self._option_types
 
         locked = QGroupBox("本方法版本锁定值", content)
@@ -627,6 +724,7 @@ class DesignPage(QWidget):
         self.options_default_note.setWordWrap(True)
         self._options_content_layout.addWidget(self.options_default_note)
         self._options_content_layout.addStretch(1)
+        self._advanced_options_footer = (locked, self.options_default_note)
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
@@ -657,6 +755,286 @@ class DesignPage(QWidget):
             "pair_members": "Pair 成员表",
         }
         return labels.get(name, name)
+
+    def _simple_visible_design_fields(self, design_type: str) -> set[str]:
+        fields = {"design_type", "outcome_type", "analysis_unit"}
+        if design_type == "unknown":
+            return fields | {"subject_column"}
+        fields |= {"independence_confirmed", "independence_note"}
+        if design_type in {"independent", "team_independent"}:
+            fields.add("group_column")
+        if design_type == "independent":
+            fields.add("subject_column")
+        elif design_type == "team_independent":
+            fields |= {"team_column", "interaction_column", "analysis_unit_column"}
+        elif design_type in {"paired", "repeated"}:
+            fields |= {"subject_column", "condition_column"}
+            if design_type == "repeated":
+                fields |= {"session_column", "trial_column"}
+        elif design_type == "lmm":
+            fields |= {"subject_column", "session_column", "trial_column", "group_column", "condition_column"}
+        elif design_type in {"correlation", "within_correlation"}:
+            fields |= {"subject_column", "session_column", "performance_columns", "performance_join_keys"}
+            if design_type == "within_correlation":
+                fields.add("trial_column")
+        return fields
+
+    @staticmethod
+    def _simple_visible_options(design_type: str) -> set[str]:
+        if design_type == "lmm":
+            return {"lmm_template"}
+        if design_type == "correlation":
+            return {"association_method", "performance_types"}
+        if design_type == "within_correlation":
+            return {"performance_types"}
+        return set()
+
+    def _update_simple_advanced_visibility(self, advanced: bool) -> None:
+        values = self.configuration_values()
+        design_type = str(values.get("design_type", "unknown"))
+        self._visibility_state = (advanced, design_type)
+        visible_fields = self._simple_visible_design_fields(design_type)
+        for name, widget in self._design_editors.items():
+            visible = advanced or name in visible_fields
+            widget.setVisible(visible)
+            self._design_labels[name].setVisible(visible)
+
+        simple_options = self._simple_visible_options(design_type)
+        for name, (label, editor, note) in self._option_rows.items():
+            visible = advanced or name in simple_options
+            label.setVisible(visible)
+            editor.setVisible(visible)
+            note.setVisible(visible)
+        for item in getattr(self, "_advanced_options_footer", ()):
+            item.setVisible(advanced)
+
+        self.tabs.setTabVisible(1, advanced or bool(simple_options))
+        if advanced:
+            options_title = "分层、模型与比较族"
+        elif design_type == "lmm":
+            options_title = "LMM 模板"
+        elif design_type == "correlation":
+            options_title = "相关方法与绩效类型"
+        else:
+            options_title = "绩效目标类型"
+        self.tabs.setTabText(1, options_title)
+        if not advanced and not simple_options and self.tabs.currentIndex() == 1:
+            self.tabs.setCurrentWidget(self.design_tab)
+        self._refresh_settings_summary()
+        self._refresh_ready_guidance()
+
+    def _show_advanced_settings(self) -> None:
+        self.advanced_toggle.setChecked(True)
+        self.tabs.setCurrentWidget(self.options_tab)
+
+    def _set_preset_selection(self, preset_id: str | None) -> None:
+        previous = self.preset_combo.blockSignals(True)
+        try:
+            index = next((i for i in range(self.preset_combo.count())
+                          if self.preset_combo.itemData(i) == preset_id), 0)
+            self.preset_combo.setCurrentIndex(index)
+            self.apply_preset_button.setEnabled(preset_id is not None)
+        finally:
+            self.preset_combo.blockSignals(previous)
+
+    def _refresh_preset_preview(self) -> None:
+        selected = self.preset_combo.currentData()
+        if selected is None:
+            message = _PRESET_HELP.get(self._active_preset_id or "", "预设只填设计起点，不证明假设或独立性；所有列名都要对照当前数据核对。")
+        else:
+            message = _PRESET_HELP[str(selected)] + "\n应用后会清除其他设计留下的水平筛选、协变量、模型比较和绩效目标；已有被试 / session / trial ID 建议会按设计保留。"
+        self.preset_help_label.setText(message)
+
+    def apply_preset(self, preset_id: str) -> None:
+        selected = next((item for item in _STATISTICS_PRESETS if item[0] == preset_id), None)
+        if selected is None:
+            raise ValueError(f"未知统计预设：{preset_id}")
+        current_unit = self._design_editors["analysis_unit"].value()
+        design_type, outcome_type, analysis_unit = selected[2:]
+        values = asdict(DesignSpec())
+        preserve_ids = {"subject_column", "session_column", "trial_column"}
+        if analysis_unit != "team":
+            preserve_ids.add("interaction_column")
+        elif current_unit in {"team", "interaction"}:
+            preserve_ids |= {"interaction_column", "team_column"}
+        if current_unit == analysis_unit:
+            preserve_ids.add("analysis_unit_column")
+        for name in preserve_ids:
+            existing = self._design_editors[name].value()
+            if isinstance(existing, str) and existing.strip():
+                values[name] = existing
+        if analysis_unit == "team" and "interaction_column" not in preserve_ids:
+            values["interaction_column"] = None
+        values.update({
+            "design_type": design_type,
+            "outcome_type": outcome_type,
+            "analysis_unit": analysis_unit,
+            "group_column": "between_group" if design_type in {"independent", "team_independent"} else None,
+            "condition_column": "condition" if design_type in {"paired", "repeated", "lmm"} else None,
+            "independence_confirmed": False,
+            "independence_note": None,
+            "performance_columns": (),
+            "performance_join_keys": (),
+            "options": {},
+        })
+        if preset_id == "lmm_subject_intercept":
+            values["options"] = {"lmm_template": "subject_intercept"}
+        elif preset_id == "spearman":
+            values["options"] = {"association_method": "spearman"}
+
+        self._applying_preset = True
+        try:
+            self.set_design_spec(values)
+        finally:
+            self._applying_preset = False
+        self._active_preset_id = preset_id
+        self._preset_applied_values = deepcopy(self.configuration_values())
+        self._set_preset_selection(preset_id)
+        self.tabs.setCurrentWidget(self.design_tab)
+        self._refresh_preset_preview()
+        self._refresh_ready_guidance()
+        self._refresh_settings_summary()
+
+    def _mark_custom_if_preset_changed(self, values: Mapping[str, Any]) -> None:
+        if self._applying_preset or self._active_preset_id is None or self._preset_applied_values is None:
+            return
+        if dict(values) != self._preset_applied_values:
+            self._active_preset_id = None
+            self._preset_applied_values = None
+            self._set_preset_selection(None)
+            self._refresh_preset_preview()
+
+    @staticmethod
+    def _short_setting_value(value: Any) -> str:
+        text = repr(value)
+        return text if len(text) <= 72 else text[:69] + "..."
+
+    def _refresh_settings_summary(self) -> None:
+        if self.advanced_toggle.isChecked():
+            state = "高级设置已展开；收起时非默认值仍会保留。"
+            self.settings_summary_label.setText(state)
+            return
+        try:
+            values = self.configuration_values()
+        except (TypeError, ValueError):
+            self.settings_summary_label.setText("有尚未完成的字段；展开高级设置可查看全部内容。")
+            return
+        defaults = asdict(DesignSpec())
+        visible = self._simple_visible_design_fields(str(values.get("design_type", "unknown")))
+        hidden: list[str] = []
+        for name, value in values.items():
+            if name == "options" or name in visible or value == defaults.get(name):
+                continue
+            hidden.append(f"{self._field_label(name)}={self._short_setting_value(value)}")
+        simple_options = self._simple_visible_options(str(values.get("design_type", "unknown")))
+        options = values.get("options", {})
+        for name, (_kind, default, _description) in _OPTION_SPECS.items():
+            if name in simple_options or options.get(name, default) == default:
+                continue
+            hidden.append(f"{self._option_label(name)}={self._short_setting_value(options[name])}")
+        for name, value in self._unknown_options.items():
+            hidden.append(f"未知选项 {name}={self._short_setting_value(value)}")
+        for name, value in self._unknown_design_fields.items():
+            hidden.append(f"未知设计字段 {name}={self._short_setting_value(value)}")
+
+        if self._active_preset_id:
+            preset_name = next(label for key, label, *_ in _STATISTICS_PRESETS if key == self._active_preset_id)
+            base = f"当前预设：{preset_name}。预设不会替代数据核对或研究者确认。"
+        else:
+            base = "当前为手动或方案载入的自定义设置；没有自动套用常用预设。"
+        if hidden:
+            shown = "；".join(hidden[:5])
+            if len(hidden) > 5:
+                shown += f"；另有 {len(hidden) - 5} 项"
+            self.settings_summary_label.setText(base + " 收起的非默认设置已保留：" + shown)
+        else:
+            self.settings_summary_label.setText(base + " 收起字段均为缺省值。")
+
+    def _refresh_ready_guidance(self) -> None:
+        if not hasattr(self, "preset_guidance_label"):
+            return
+        try:
+            values = self.configuration_values()
+        except (TypeError, ValueError) as exc:
+            self.preset_guidance_label.setText("请先修正当前字段：" + str(exc))
+            return
+        design_type = str(values.get("design_type", "unknown"))
+        if design_type == "unknown":
+            if self._active_preset_id == "descriptive":
+                self.preset_guidance_label.setText("当前仅做描述统计；设计和结果类型仍未知，不会执行推断。需要推断时请选择相应预设并补充研究者声明。")
+            else:
+                self.preset_guidance_label.setText("尚未声明推断设计。可先选择常用预设；未知设计只保留描述统计。")
+            return
+
+        remaining: list[str] = []
+        if values.get("outcome_type") == "unknown":
+            remaining.append("明确结果类型；预设中的 continuous 表示你已声明连续结果，请按研究定义核对")
+        elif values.get("outcome_type") != "continuous":
+            remaining.append("当前统计后端仅支持连续结果推断，请确认数据定义，不能把其他类型强转为连续")
+        if values.get("analysis_unit") == "unknown":
+            remaining.append("选择实际独立分析单位")
+        if not values.get("independence_confirmed"):
+            remaining.append("核对单位与依赖结构，显式确认独立性并填写真实依据")
+        elif not str(values.get("independence_note") or "").strip():
+            remaining.append("补充独立性依据说明")
+
+        field_columns: list[tuple[str, str]] = []
+        unit = values.get("analysis_unit")
+        if unit in {"subject", "individual", "participant"}:
+            field_columns.append(("被试 ID", values.get("analysis_unit_column") or values.get("subject_column")))
+        elif unit in {"team", "interaction"}:
+            explicit_team_column = values.get("analysis_unit_column") or values.get("team_column")
+            if explicit_team_column:
+                field_columns.append(("团队 ID", explicit_team_column))
+            else:
+                remaining.append("填写真实团队 ID 列（team_column 或 analysis_unit_column）；interaction_column 只有确为团队 ID 时才能作为替代")
+        if design_type in {"independent", "team_independent"}:
+            field_columns.append(("组间条件", values.get("group_column")))
+        if design_type in {"paired", "repeated"}:
+            field_columns.append(("组内条件", values.get("condition_column")))
+        if design_type in {"correlation", "within_correlation"}:
+            targets = tuple(values.get("performance_columns") or ())
+            if not targets:
+                remaining.append("选择至少一个真实绩效结果列")
+            if not values.get("performance_join_keys"):
+                remaining.append("声明 metric 与绩效表的一对一连接键")
+            declared_types = values.get("options", {}).get("performance_types", {})
+            for target in targets:
+                expected = declared_types.get(target, "unknown")
+                spearman = (design_type == "correlation"
+                            and values.get("options", {}).get("association_method") == "spearman")
+                allowed = {"continuous", "ordinal"} if spearman else {"continuous"}
+                if expected not in allowed:
+                    remaining.append(f"在绩效类型选项中将绩效列 {target!r} 明确声明为 " + ("continuous 或 ordinal" if spearman else "continuous"))
+        for label, column in field_columns:
+            if not isinstance(column, str) or not column.strip():
+                remaining.append(f"填写{label}列")
+            elif not self._metric_frame.empty and column not in self._metric_frame.columns:
+                remaining.append(f"将{label}列名 {column!r} 改为当前 metric 表中的真实列")
+
+        if not self._metric_frame.empty and design_type in {"independent", "team_independent"}:
+            group_column = values.get("group_column")
+            if isinstance(group_column, str) and group_column in self._metric_frame:
+                levels = self._metric_frame[group_column].dropna().nunique()
+                if self._active_preset_id in {"independent_two", "independent_multi"}:
+                    remaining.append(f"核对筛选后实际保留的组别数（当前原始 metric 表有 {levels} 个水平）；最终方法由后端自动选择")
+        elif self._active_preset_id in {"independent_two", "independent_multi"}:
+            remaining.append("核对当前数据和筛选后实际组别数；2 组为 Welch t，3 组及以上为 Welch ANOVA / Games–Howell")
+
+        if self._active_preset_id == "paired":
+            remaining.append("确认是相同单位的两个条件一一配对；3 个及以上条件请改用重复测量设计")
+        elif self._active_preset_id == "repeated":
+            remaining.append("核对条件数量、每单位重复次数和完整性；后端会按实际数据选择支持的方法")
+        elif self._active_preset_id == "lmm_subject_intercept":
+            remaining.append("确认每个独立单位有重复观测，并核对 subject_intercept 模板")
+        elif self._active_preset_id == "team_independent":
+            remaining.append("确认输入中的团队互不共享成员；pair 行不能作为独立团队，合法聚合需在高级设置补成员映射")
+
+        prefix = "预设只给设计起点。" if self._active_preset_id else "手动 / 方案设计。"
+        if remaining:
+            self.preset_guidance_label.setText(prefix + "运行前还需：" + "；".join(dict.fromkeys(remaining)) + "。")
+        else:
+            self.preset_guidance_label.setText(prefix + "已填写所需声明；仍请点击“检查可用条件”，由后端按当前数据检查水平、完整观测和依赖结构。")
 
     def _build_results_tab(self) -> None:
         layout = QVBoxLayout(self.results_tab)
@@ -769,8 +1147,13 @@ class DesignPage(QWidget):
                         editor.setCurrentIndex(match)
         finally:
             self._loading_design = False
+        if not self._applying_preset:
+            self._active_preset_id = None
+            self._preset_applied_values = None
+            self._set_preset_selection(None)
         self._refresh_levels()
         self._refresh_performance_info()
+        self._refresh_preset_preview()
         self._emit_configuration()
 
     def validate(self) -> tuple[str, ...]:
@@ -981,11 +1364,17 @@ class DesignPage(QWidget):
             self._refresh_performance_info()
         try:
             values = self._draft_values()
+            self._mark_custom_if_preset_changed(values)
+            visibility_state = (self.advanced_toggle.isChecked(), str(values.get("design_type", "unknown")))
+            if visibility_state != self._visibility_state:
+                self._update_simple_advanced_visibility(visibility_state[0])
             self.configuration_changed.emit({"statistics_design": values})
             errors = self.validate()
         except (TypeError, ValueError) as exc:
             errors = (str(exc),)
         self.validation_changed.emit(errors)
+        self._refresh_settings_summary()
+        self._refresh_ready_guidance()
         if hasattr(self, "validation_label"):
             if errors:
                 self.validation_label.setText("配置提示：" + "；".join(errors))

@@ -51,6 +51,12 @@ class QualityPage(QWidget):
         "support_gap_max_s",
         "interpolate_gaze",
         "interpolate_pupil",
+        "pupil_interpolation_method",
+        "pupil_speed_mad_enabled",
+        "pupil_speed_mad_n",
+        "pupil_blink_padding_enabled",
+        "pupil_blink_padding_before_s",
+        "pupil_blink_padding_after_s",
         "gaze_max_gap_s",
         "pupil_max_gap_s",
         "max_missing_samples",
@@ -111,6 +117,70 @@ class QualityPage(QWidget):
         self.interpolate_pupil.setChecked(defaults.interpolate_pupil)
         self.pupil_gap = self._double(0.000001, 1000000.0, defaults.pupil_max_gap_s, 6)
         self.pupil_gap.setEnabled(False)
+        self.pupil_preset = QComboBox(self)
+        self.pupil_preset.addItem("关闭瞳孔插值 / MAD / padding（保留其他设置）", "raw")
+        self.pupil_preset.addItem("保守短缺口线性插值", "short_linear")
+        self.pupil_preset.addItem("研究方法：PCHIP + MAD + padding", "research")
+        self.apply_pupil_preset = QPushButton("应用所选预设", self)
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(self.pupil_preset, 1)
+        preset_row.addWidget(self.apply_pupil_preset)
+        preset_widget = QWidget(self)
+        preset_widget.setLayout(preset_row)
+        self.pupil_advanced_toggle = QCheckBox("显示高级瞳孔预处理参数", self)
+        self.pupil_advanced_summary = QLabel("", self)
+        self.pupil_advanced_summary.setWordWrap(True)
+        self.pupil_advanced_summary.setVisible(False)
+        self.pupil_advanced_box = QGroupBox("高级瞳孔预处理参数", self)
+        advanced_form = QFormLayout(self.pupil_advanced_box)
+        self.pupil_interpolation_method = QComboBox(self.pupil_advanced_box)
+        self.pupil_interpolation_method.addItem("线性（默认）", "linear")
+        self.pupil_interpolation_method.addItem("PCHIP（形状保持）", "pchip")
+        self.pupil_speed_mad_enabled = QCheckBox("启用 pupil 速度 MAD 拒绝", self.pupil_advanced_box)
+        self.pupil_speed_mad_enabled.setChecked(defaults.pupil_speed_mad_enabled)
+        self.pupil_speed_mad_n = QSpinBox(self.pupil_advanced_box)
+        self.pupil_speed_mad_n.setRange(1, 1000000)
+        self.pupil_speed_mad_n.setValue(defaults.pupil_speed_mad_n)
+        self.pupil_blink_padding_enabled = QCheckBox("启用 pupil 眨眼 / 丢失边界遮罩", self.pupil_advanced_box)
+        self.pupil_blink_padding_enabled.setChecked(defaults.pupil_blink_padding_enabled)
+        self.pupil_blink_padding_before = self._double(0.0, 1000000.0, defaults.pupil_blink_padding_before_s, 6)
+        self.pupil_blink_padding_after = self._double(0.0, 1000000.0, defaults.pupil_blink_padding_after_s, 6)
+        padding_row = QHBoxLayout()
+        padding_row.addWidget(QLabel("之前秒", self.pupil_advanced_box))
+        padding_row.addWidget(self.pupil_blink_padding_before)
+        padding_row.addWidget(QLabel("之后秒", self.pupil_advanced_box))
+        padding_row.addWidget(self.pupil_blink_padding_after)
+        padding_row.addStretch(1)
+        padding_widget = QWidget(self.pupil_advanced_box)
+        padding_widget.setLayout(padding_row)
+        self.pupil_preprocessing_note = QLabel(
+            "速度 MAD 只检查 pupil，不改 gaze。启用前请核对采集端没有在线 / 保存滤波；硬件滤波可能抹平速度尖峰。"
+            "边界遮罩只影响明确缺失 / 无效样本和逐眼眨眼标记附近的分析值。线性 / PCHIP 插值继续遵守现有最大缺口秒数与缺失采样点上限；"
+            "缺少足够 PCHIP 锚点时保留缺失值。请检查逐眼质量图和审计记录。",
+            self.pupil_advanced_box,
+        )
+        self.pupil_preprocessing_note.setWordWrap(True)
+        self.pupil_preprocessing_note.setToolTip(
+            "eyeris 方法说明提醒，EyeLink 在线或保存样本滤波会削弱一步差分速度 MAD 的异常检测前提；"
+            "如果记录已经滤波，请考虑保持 MAD 关闭并检查原始与处理后轨迹。"
+        )
+        self.pupil_speed_mad_enabled.setToolTip(
+            "在连续、有限、明确来源有效的样本上计算 pupil 速度；阈值为 median(speed) + n×MAD。默认关闭。"
+        )
+        self.pupil_speed_mad_n.setToolTip(
+            "比例常数 n；2025 iMotion 示范研究使用 20。MAD=0 时按字面阈值 median(speed) 执行，需人工复核。"
+        )
+        self.pupil_blink_padding_enabled.setToolTip(
+            "逐眼缺失 / 无效样本或明确眨眼标记前后按秒遮罩；不扩大现有最大缺口或采样点上限。"
+        )
+        self.pupil_interpolation_method.setToolTip(
+            "PCHIP 要求缺口两侧各有两个同一连续支持段内的有效锚点；不足时保留缺失，不改用线性。"
+        )
+        advanced_form.addRow("瞳孔插值方法", self.pupil_interpolation_method)
+        advanced_form.addRow(self.pupil_speed_mad_enabled, self.pupil_speed_mad_n)
+        advanced_form.addRow(self.pupil_blink_padding_enabled, padding_widget)
+        advanced_form.addRow(self.pupil_preprocessing_note)
+        self.pupil_advanced_box.setVisible(False)
         self.max_missing = QSpinBox(self)
         self.max_missing.setRange(1, 100000)
         self.max_missing.setValue(defaults.max_missing_samples)
@@ -133,6 +203,10 @@ class QualityPage(QWidget):
 
         box = QGroupBox("共享预处理配置（按后端 ProcessingConfig 执行）", self)
         form = QFormLayout(box)
+        form.addRow("常用瞳孔预设（须显式应用）", preset_widget)
+        form.addRow(self.pupil_advanced_toggle)
+        form.addRow(self.pupil_advanced_summary)
+        form.addRow(self.pupil_advanced_box)
         form.addRow("时间顺序", self.order_policy)
         form.addRow("重复时间", self.duplicate_policy)
         form.addRow("支持间隔倍数（> 1）", self.gap_factor)
@@ -152,7 +226,8 @@ class QualityPage(QWidget):
         form.addRow("基线最低覆盖率（0, 1]", self.baseline_coverage)
         form.addRow("基线最短时长（秒；0 不额外限制）", self.baseline_length)
         note = QLabel(
-            "默认插值、低通和基线校正均关闭。未开放未验证插值边界绕过；前检由现有 TaskManager 后台调用公共 preflight，"
+            "默认 pupil 插值、速度 MAD、边界遮罩、低通和基线校正均关闭；插值方法默认为线性。未开放未验证插值边界绕过；"
+            "前检由现有 TaskManager 后台调用公共 preflight，"
             "滤波 Nyquist、缺口及条件可用性以实际后端返回为准。基线最短时长设为 0 时不额外限制正时长基线窗；"
             "基线窗口自身仍必须非空且满足最低覆盖率。源信号始终只读。",
             box,
@@ -182,7 +257,9 @@ class QualityPage(QWidget):
         text = str(message)
         candidates = (
             "order_policy", "duplicate_policy", "support_gap_factor", "support_gap_max_s",
-            "interpolate_gaze", "interpolate_pupil", "gaze_max_gap_s", "pupil_max_gap_s",
+            "interpolate_gaze", "interpolate_pupil", "pupil_interpolation_method",
+            "pupil_speed_mad_enabled", "pupil_speed_mad_n", "pupil_blink_padding_enabled",
+            "pupil_blink_padding_before_s", "pupil_blink_padding_after_s", "gaze_max_gap_s", "pupil_max_gap_s",
             "max_missing_samples", "lowpass_cutoff_hz", "lowpass_order",
             "pupil_baseline_window_s", "baseline_min_coverage", "baseline_min_length_s",
         )
@@ -204,6 +281,12 @@ class QualityPage(QWidget):
             "support_gap_max_s": self.max_gap,
             "interpolate_gaze": self.interpolate_gaze,
             "interpolate_pupil": self.interpolate_pupil,
+            "pupil_interpolation_method": self.pupil_interpolation_method,
+            "pupil_speed_mad_enabled": self.pupil_speed_mad_enabled,
+            "pupil_speed_mad_n": self.pupil_speed_mad_n,
+            "pupil_blink_padding_enabled": self.pupil_blink_padding_enabled,
+            "pupil_blink_padding_before_s": self.pupil_blink_padding_before,
+            "pupil_blink_padding_after_s": self.pupil_blink_padding_after,
             "gaze_max_gap_s": self.gaze_gap,
             "pupil_max_gap_s": self.pupil_gap,
             "max_missing_samples": self.max_missing,
@@ -235,11 +318,13 @@ class QualityPage(QWidget):
         for name in (
             "interpolate_gaze",
             "interpolate_pupil",
+            "pupil_speed_mad_enabled",
+            "pupil_blink_padding_enabled",
             "allow_unverified_interpolation_bounds",
         ):
             if type(getattr(config, name)) is not bool:
                 raise TypeError(f"processing.{name} must be bool")
-        for name in ("max_missing_samples", "lowpass_order"):
+        for name in ("max_missing_samples", "lowpass_order", "pupil_speed_mad_n"):
             item = getattr(config, name)
             if isinstance(item, (bool, np.bool_)) or not isinstance(item, numbers.Integral):
                 raise TypeError(f"processing.{name} must be an integer")
@@ -249,6 +334,8 @@ class QualityPage(QWidget):
             "pupil_max_gap_s",
             "baseline_min_coverage",
             "baseline_min_length_s",
+            "pupil_blink_padding_before_s",
+            "pupil_blink_padding_after_s",
         ):
             item = getattr(config, name)
             if (isinstance(item, (bool, np.bool_)) or not isinstance(item, numbers.Real)
@@ -289,6 +376,7 @@ class QualityPage(QWidget):
         combo_values = (
             (self.order_policy, config.order_policy, "order_policy"),
             (self.duplicate_policy, config.duplicate_policy, "duplicate_policy"),
+            (self.pupil_interpolation_method, config.pupil_interpolation_method, "pupil_interpolation_method"),
         )
         for control, item, name in combo_values:
             if control.findData(item) < 0:
@@ -301,6 +389,8 @@ class QualityPage(QWidget):
             (self.max_gap, config.support_gap_max_s if config.support_gap_max_s is not None else defaults.support_gap_max_s or 0.5, "support_gap_max_s", 6),
             (self.gaze_gap, config.gaze_max_gap_s, "gaze_max_gap_s", 6),
             (self.pupil_gap, config.pupil_max_gap_s, "pupil_max_gap_s", 6),
+            (self.pupil_blink_padding_before, config.pupil_blink_padding_before_s, "pupil_blink_padding_before_s", 3),
+            (self.pupil_blink_padding_after, config.pupil_blink_padding_after_s, "pupil_blink_padding_after_s", 3),
             (self.lowpass_cutoff, config.lowpass_cutoff_hz if config.lowpass_cutoff_hz is not None else 1.0, "lowpass_cutoff_hz", 6),
             (self.baseline_start, config.pupil_baseline_window_s[0] if config.pupil_baseline_window_s is not None else 0.0, "pupil_baseline_window_s[0]", 6),
             (self.baseline_end, config.pupil_baseline_window_s[1] if config.pupil_baseline_window_s is not None else defaults.baseline_min_length_s, "pupil_baseline_window_s[1]", 6),
@@ -332,6 +422,7 @@ class QualityPage(QWidget):
         integers = (
             (self.max_missing, config.max_missing_samples, "max_missing_samples"),
             (self.lowpass_order, config.lowpass_order, "lowpass_order"),
+            (self.pupil_speed_mad_n, config.pupil_speed_mad_n, "pupil_speed_mad_n"),
         )
         for control, item, name in integers:
             if item < control.minimum() or item > control.maximum():
@@ -346,7 +437,10 @@ class QualityPage(QWidget):
         controls = (
             self.order_policy, self.duplicate_policy, self.gap_factor, self.use_max_gap,
             self.max_gap, self.interpolate_gaze, self.gaze_gap, self.interpolate_pupil,
-            self.pupil_gap, self.max_missing, self.use_lowpass, self.lowpass_cutoff,
+            self.pupil_gap, self.pupil_interpolation_method, self.pupil_speed_mad_enabled,
+            self.pupil_speed_mad_n, self.pupil_blink_padding_enabled,
+            self.pupil_blink_padding_before, self.pupil_blink_padding_after,
+            self.max_missing, self.use_lowpass, self.lowpass_cutoff,
             self.lowpass_order, self.use_baseline, self.baseline_start, self.baseline_end,
             self.baseline_coverage, self.baseline_length,
         )
@@ -354,6 +448,9 @@ class QualityPage(QWidget):
         try:
             self.order_policy.setCurrentIndex(self.order_policy.findData(config.order_policy))
             self.duplicate_policy.setCurrentIndex(self.duplicate_policy.findData(config.duplicate_policy))
+            self.pupil_interpolation_method.setCurrentIndex(
+                self.pupil_interpolation_method.findData(config.pupil_interpolation_method)
+            )
             for control, item, _name, base_decimals in doubles:
                 number = float(item)
                 control.setDecimals(max(base_decimals, -Decimal(str(number)).as_tuple().exponent))
@@ -361,6 +458,9 @@ class QualityPage(QWidget):
             self.use_max_gap.setChecked(config.support_gap_max_s is not None)
             self.interpolate_gaze.setChecked(config.interpolate_gaze)
             self.interpolate_pupil.setChecked(config.interpolate_pupil)
+            self.pupil_speed_mad_enabled.setChecked(config.pupil_speed_mad_enabled)
+            self.pupil_speed_mad_n.setValue(config.pupil_speed_mad_n)
+            self.pupil_blink_padding_enabled.setChecked(config.pupil_blink_padding_enabled)
             self.max_missing.setValue(config.max_missing_samples)
             self.use_lowpass.setChecked(config.lowpass_cutoff_hz is not None)
             self.lowpass_order.setValue(config.lowpass_order)
@@ -375,11 +475,18 @@ class QualityPage(QWidget):
         self.max_gap.setEnabled(self.use_max_gap.isChecked())
         self.gaze_gap.setEnabled(self.interpolate_gaze.isChecked())
         self.pupil_gap.setEnabled(self.interpolate_pupil.isChecked())
+        self.pupil_interpolation_method.setEnabled(self.interpolate_pupil.isChecked())
+        self.pupil_speed_mad_n.setEnabled(self.pupil_speed_mad_enabled.isChecked())
+        padding_enabled = self.pupil_blink_padding_enabled.isChecked()
+        self.pupil_blink_padding_before.setEnabled(padding_enabled)
+        self.pupil_blink_padding_after.setEnabled(padding_enabled)
         self.lowpass_cutoff.setEnabled(self.use_lowpass.isChecked())
         self.lowpass_order.setEnabled(self.use_lowpass.isChecked())
         enabled = self.use_baseline.isChecked()
         for control in (self.baseline_start, self.baseline_end, self.baseline_coverage, self.baseline_length):
             control.setEnabled(enabled)
+        self.pupil_advanced_box.setVisible(self.pupil_advanced_toggle.isChecked())
+        self._refresh_pupil_advanced_summary()
 
     def _build_results(self) -> None:
         self.timeline = TimelineWidget(self)
@@ -462,7 +569,10 @@ class QualityPage(QWidget):
     def _connect_controls(self) -> None:
         for control in (
             self.order_policy, self.duplicate_policy, self.gap_factor, self.use_max_gap, self.max_gap,
-            self.interpolate_gaze, self.gaze_gap, self.interpolate_pupil, self.pupil_gap, self.max_missing,
+            self.interpolate_gaze, self.gaze_gap, self.interpolate_pupil, self.pupil_gap,
+            self.pupil_interpolation_method, self.pupil_speed_mad_enabled, self.pupil_speed_mad_n,
+            self.pupil_blink_padding_enabled, self.pupil_blink_padding_before,
+            self.pupil_blink_padding_after, self.max_missing,
             self.use_lowpass, self.lowpass_cutoff, self.lowpass_order, self.use_baseline,
             self.baseline_start, self.baseline_end, self.baseline_coverage, self.baseline_length,
         ):
@@ -474,6 +584,8 @@ class QualityPage(QWidget):
                 control.valueChanged.connect(self._emit_configuration)
             else:
                 control.valueChanged.connect(self._emit_configuration)
+        self.pupil_advanced_toggle.toggled.connect(self._toggle_pupil_advanced)
+        self.apply_pupil_preset.clicked.connect(self._apply_pupil_preset)
         self.timeline.intervalSelected.connect(self._on_interval_selected)
         self.timeline.timeRangeChanged.connect(self._on_time_range_changed)
         self.timeline.diagnosticSelected.connect(self._on_timeline_diagnostic)
@@ -484,6 +596,100 @@ class QualityPage(QWidget):
     def _control_toggled(self, *_: Any) -> None:
         self._sync_control_enabled_states()
         self._emit_configuration()
+
+    def _toggle_pupil_advanced(self, checked: bool) -> None:
+        self.pupil_advanced_box.setVisible(checked)
+        self._refresh_pupil_advanced_summary()
+        controls_layout = self.controls_box.layout()
+        if controls_layout is not None:
+            controls_layout.activate()
+        self.controls_box.setMinimumHeight(self.controls_box.minimumSizeHint().height())
+        self.controls_box.adjustSize()
+
+    def _refresh_pupil_advanced_summary(self) -> None:
+        defaults = ProcessingConfig()
+        custom = (
+            self.pupil_speed_mad_enabled.isChecked()
+            or self.pupil_speed_mad_n.value() != defaults.pupil_speed_mad_n
+            or self.pupil_blink_padding_enabled.isChecked()
+            or self.pupil_blink_padding_before.value() != defaults.pupil_blink_padding_before_s
+            or self.pupil_blink_padding_after.value() != defaults.pupil_blink_padding_after_s
+            or self.pupil_interpolation_method.currentData() != defaults.pupil_interpolation_method
+        )
+        if custom:
+            parts = []
+            if self.pupil_speed_mad_enabled.isChecked():
+                parts.append(f"速度 MAD n={self.pupil_speed_mad_n.value()}")
+            if self.pupil_blink_padding_enabled.isChecked():
+                parts.append(
+                    f"边界遮罩 −{self.pupil_blink_padding_before.value():g}/"
+                    f"+{self.pupil_blink_padding_after.value():g} 秒"
+                )
+            if self.pupil_interpolation_method.currentData() != "linear":
+                parts.append(f"插值={self.pupil_interpolation_method.currentText()}")
+            if self.pupil_speed_mad_n.value() != defaults.pupil_speed_mad_n and not self.pupil_speed_mad_enabled.isChecked():
+                parts.append(f"保存的 MAD n={self.pupil_speed_mad_n.value()}（当前关闭）")
+            if (self.pupil_blink_padding_before.value() != defaults.pupil_blink_padding_before_s
+                    or self.pupil_blink_padding_after.value() != defaults.pupil_blink_padding_after_s):
+                if not self.pupil_blink_padding_enabled.isChecked():
+                    parts.append("保存了边界遮罩秒数（当前关闭）")
+            if self.pupil_interpolation_method.currentData() != "linear" and not self.interpolate_pupil.isChecked():
+                parts.append("插值方法已保存（当前关闭 pupil 插值）")
+            self.pupil_advanced_summary.setText("高级瞳孔设置：" + "；".join(parts) + "。勾选上方选项可查看参数。")
+            self.pupil_advanced_summary.setVisible(not self.pupil_advanced_toggle.isChecked())
+        else:
+            self.pupil_advanced_summary.setText("")
+            self.pupil_advanced_summary.setVisible(False)
+
+    def _apply_pupil_preset(self) -> None:
+        values = self.processing_config()
+        selected = self.pupil_preset.currentData()
+        if selected == "raw":
+            defaults = ProcessingConfig()
+            values.update(
+                interpolate_pupil=False,
+                pupil_interpolation_method="linear",
+                pupil_speed_mad_enabled=False,
+                pupil_speed_mad_n=defaults.pupil_speed_mad_n,
+                pupil_blink_padding_enabled=False,
+                pupil_blink_padding_before_s=defaults.pupil_blink_padding_before_s,
+                pupil_blink_padding_after_s=defaults.pupil_blink_padding_after_s,
+            )
+            label = "关闭瞳孔插值 / MAD / padding（其他设置保留）"
+        elif selected == "short_linear":
+            defaults = ProcessingConfig()
+            values.update(
+                interpolate_pupil=True,
+                pupil_interpolation_method="linear",
+                pupil_max_gap_s=min(values["pupil_max_gap_s"], defaults.pupil_max_gap_s),
+                max_missing_samples=min(values["max_missing_samples"], defaults.max_missing_samples),
+                pupil_speed_mad_enabled=False,
+                pupil_speed_mad_n=defaults.pupil_speed_mad_n,
+                pupil_blink_padding_enabled=False,
+                pupil_blink_padding_before_s=defaults.pupil_blink_padding_before_s,
+                pupil_blink_padding_after_s=defaults.pupil_blink_padding_after_s,
+            )
+            label = "保守短缺口线性插值"
+        else:
+            defaults = ProcessingConfig()
+            values.update(
+                interpolate_pupil=True,
+                pupil_interpolation_method="pchip",
+                pupil_speed_mad_enabled=True,
+                pupil_speed_mad_n=20,
+                pupil_blink_padding_enabled=True,
+                pupil_blink_padding_before_s=defaults.pupil_blink_padding_before_s,
+                pupil_blink_padding_after_s=defaults.pupil_blink_padding_after_s,
+            )
+            label = "研究方法：PCHIP + MAD + padding"
+        self.set_processing_config(values)
+        if selected == "research":
+            self.pupil_advanced_toggle.setChecked(True)
+        self._emit_configuration()
+        self.status.setText(
+            f"已显式应用“{label}”；现有最大缺口秒数与连续缺失采样点上限仍生效。"
+            "请复核逐眼质量图、掩码计数及来源有效性。"
+        )
 
     def processing_config(self) -> dict[str, Any]:
         baseline = (self.baseline_start.value(), self.baseline_end.value()) if self.use_baseline.isChecked() else None
@@ -496,6 +702,12 @@ class QualityPage(QWidget):
             "interpolate_pupil": self.interpolate_pupil.isChecked(),
             "gaze_max_gap_s": self.gaze_gap.value(),
             "pupil_max_gap_s": self.pupil_gap.value(),
+            "pupil_interpolation_method": self.pupil_interpolation_method.currentData(),
+            "pupil_speed_mad_enabled": self.pupil_speed_mad_enabled.isChecked(),
+            "pupil_speed_mad_n": self.pupil_speed_mad_n.value(),
+            "pupil_blink_padding_enabled": self.pupil_blink_padding_enabled.isChecked(),
+            "pupil_blink_padding_before_s": self.pupil_blink_padding_before.value(),
+            "pupil_blink_padding_after_s": self.pupil_blink_padding_after.value(),
             "max_missing_samples": self.max_missing.value(),
             "allow_unverified_interpolation_bounds": False,
             "lowpass_cutoff_hz": self.lowpass_cutoff.value() if self.use_lowpass.isChecked() else None,
@@ -512,6 +724,7 @@ class QualityPage(QWidget):
     def _emit_configuration(self, *_: Any) -> None:
         try:
             self.configuration_changed.emit(self.processing_config())
+            self._refresh_pupil_advanced_summary()
             self._clear_parameter_error()
             self.status.setText("处理配置已更新；运行前检查会在现有任务队列中真实执行。")
         except Exception as exc:

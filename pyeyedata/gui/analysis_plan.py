@@ -98,6 +98,7 @@ def validate_plan(payload: Mapping[str, Any], schema: Mapping[str, Any]) -> dict
     from .metrics_page import MetricsPage
     from .presets import catalogue_for_module
     from .quality_page import QualityPage
+    from pyeyedata import ProcessingConfig
 
     raw = _object(payload, "方案")
     if set(raw) != {"schema", "application_version", "pipeline_schema_version", "name", "configuration"}:
@@ -120,6 +121,14 @@ def validate_plan(payload: Mapping[str, Any], schema: Mapping[str, Any]) -> dict
         individual_settings.setdefault(name, deepcopy(default))
     metric_settings["individual"] = individual_settings
     config["metrics"] = metric_settings
+    processing_settings = _object(config["processing"], "预处理")
+    processing_defaults = ProcessingConfig().to_dict()
+    for name in (
+        "pupil_interpolation_method", "pupil_speed_mad_enabled", "pupil_speed_mad_n",
+        "pupil_blink_padding_enabled", "pupil_blink_padding_before_s", "pupil_blink_padding_after_s",
+    ):
+        processing_settings.setdefault(name, deepcopy(processing_defaults[name]))
+    config["processing"] = processing_settings
     # Enforce finite JSON even for callers that supply an in-memory object.
     _json(config)
     selection_values = _object(config["selection"], "指标选择")

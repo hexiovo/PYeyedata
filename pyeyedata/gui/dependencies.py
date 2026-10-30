@@ -393,8 +393,13 @@ class DependencyTracker:
 
         processing = self._parameters.get("processing", {})
         processing_map = dict(processing) if isinstance(processing, Mapping) else {}
+        pupil_processing_fields = {
+            "interpolate_pupil", "pupil_max_gap_s", "pupil_baseline_window_s",
+            "pupil_interpolation_method", "pupil_speed_mad_enabled", "pupil_speed_mad_n",
+            "pupil_blink_padding_enabled", "pupil_blink_padding_before_s", "pupil_blink_padding_after_s",
+        }
         gaze_processing_keys = {key: value for key, value in processing_map.items()
-                                if key not in {"interpolate_pupil", "pupil_max_gap_s", "pupil_baseline_window_s"}}
+                                if key not in pupil_processing_fields}
         gaze_direct = {
             "parameters.processing": gaze_processing_keys,
             "parameters.eye_selection": self._parameters.get("eye_selection", {}),
@@ -404,6 +409,8 @@ class DependencyTracker:
 
         pupil_processing_keys = {key: value for key, value in processing_map.items()
                                  if key in {"support_gap_factor", "support_gap_max_s", "interpolate_pupil", "pupil_max_gap_s",
+                                            "pupil_interpolation_method", "pupil_speed_mad_enabled", "pupil_speed_mad_n",
+                                            "pupil_blink_padding_enabled", "pupil_blink_padding_before_s", "pupil_blink_padding_after_s",
                                             "max_missing_samples", "lowpass_cutoff_hz", "lowpass_order", "pupil_baseline_window_s",
                                             "baseline_min_coverage", "baseline_min_length_s", "order_policy", "duplicate_policy"}}
         for eye in ("left", "right"):

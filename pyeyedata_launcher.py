@@ -8,7 +8,13 @@ import sys
 import traceback
 from typing import Any
 
-from pyeyedata_bootstrap import prepare_gui_paths, show_startup_error, user_data_root, verify_runtime_sources
+from pyeyedata_bootstrap import (
+    close_bootloader_splash,
+    prepare_gui_paths,
+    show_startup_error,
+    user_data_root,
+    verify_runtime_sources,
+)
 
 
 def _write_startup_exception_log(exc: Exception, *, context: str) -> None:
@@ -40,6 +46,7 @@ def _write_startup_exception_log(exc: Exception, *, context: str) -> None:
 
 
 def _close_startup_indicator(indicator: Any | None) -> None:
+    close_bootloader_splash()
     if indicator is None:
         return
     try:
@@ -52,6 +59,9 @@ def _close_startup_indicator(indicator: Any | None) -> None:
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments:
+        # Non-GUI invocations do not have a main window to take over the
+        # bootloader splash, so clear it before validating or reporting args.
+        close_bootloader_splash()
         if len(arguments) != 2 or arguments[0] != "--diagnostic-config":
             show_startup_error("仅支持 --diagnostic-config <本地 JSON 配置文件>。", interactive=False)
             return 2
@@ -78,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
 
         startup_indicator = StartupIndicator()
     except Exception as exc:
+        close_bootloader_splash()
         _write_startup_exception_log(exc, context="gui-startup-indicator")
         show_startup_error(f"{type(exc).__name__}: {exc}")
         return 1
@@ -95,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
         verify_runtime_sources()
 
-        return int(run_gui(on_ready=startup_indicator.close))
+        return int(run_gui(on_ready=lambda: _close_startup_indicator(startup_indicator)))
     except Exception as exc:
         _close_startup_indicator(startup_indicator)
         _write_startup_exception_log(exc, context="gui-launch")

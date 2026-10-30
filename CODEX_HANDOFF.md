@@ -1,6 +1,6 @@
 # PYeyedata 项目现状与接手指南
 
-更新：2026-10-28；应用版本 **0.9.7**，PRD 0.9，数据契约 1.3.0。本版本纳入启动等待提示、独立日志页、参数联动说明、任务栏图标及运行来源核验；保留工作流增强、阶段化用时估计与常见眼动指标扩展；默认分支 `master`。本次构建和检查结果以产物目录内 `release-info.json` 为准；GitHub Release 是否已发布须查看远端。
+更新：2026-10-30；应用版本 **0.9.8**，PRD 0.9，数据契约 1.3.0。包含启动 Splash、10 个统计预设与可选瞳孔预处理。此前源码检查及 HexiPlan 独立验收已完成；本次完整 EXE 构建、源码/冻结诊断、原生依赖核对和精确提交以输出目录的 `release-info.json` 为准。默认分支 `master`。本次只作本机交付，远端发布状态另行核实。
 
 ## 给另一台主机的 Codex
 
@@ -19,9 +19,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/manage.ps1 -Action Che
 
 `setup.cmd -Python "C:\path\to\python.exe"` 可以明确选择解释器。依赖在 `requirements.txt` 精确锁定；现有完整环境通过 build manifest 检查，不要随意升级科学依赖。当前没有常规 `tests/` 测试套件；可复用检查从产品自身固定诊断运行，历史外置测试不能当作仓库可重放的测试。
 
+## 0.9.8 功能与验证边界
+
+- 单文件启动在 PyInstaller bootloader 阶段显示静态“正在启动，请稍候…”画面；Qt 主窗口可见后关闭，启动异常也会先清理画面。CPython 3.12.10 / PyInstaller 6.11.1 控制 PATH harness 的 success 和注入失败分支均已验证；这不是完整产品 EXE 构建，也不表示解压耗时消失。
+- 统计设计页增加 10 个常见预设和简单 / 高级字段视图。预设提供明确标注、可编辑的连续结果起点，但不会从数据推断变量类型；独立两组与多组按过滤后实际水平路由。预设不会自动确认独立性、填写研究依据、猜团队 ID 或绩效连接。细节见 [`docs/STATISTICS_PRESETS.md`](docs/STATISTICS_PRESETS.md)。
+- 质量页增加可选瞳孔速度 MAD、眨眼 / 跟踪丢失边界 padding 和 PCHIP 插值；均默认关闭，启用插值后默认线性。原始值和来源有效性保留，派生值、状态和逐行来源可审计。细节与最新论文边界见 [`docs/PREPROCESSING_OPTIONS.md`](docs/PREPROCESSING_OPTIONS.md)。
+- 便携 ZIP 清单包含上述两份指南；资源索引和许可证来源清单已更新到启动图与 Splash 原生依赖。三项源码固定诊断均通过，但证据合并了不同运行：合成流程结果复用自 Check2，可靠性与可用性来自之后的定向重跑。本次完整产品冻结检查与原生组件最终核对由 release.cmd 执行；事实来源是产物中的 release-info.json。此前 HexiPlan 源码任务已完成，不依赖外部 run 目录才能启动或构建。
+
 ## 现有功能和入口
 
 - 新增 52 个常见指标（34 个事件分布、9 个 AOI 注视/命中、9 个阅读指标），在指标页选择；阅读标注与顺序复用已有辅助来源。首次注视与原有采样进入时间分开输出，未知观察不作未命中；新增覆盖确认只声明分类范围，不替代设备验证。定义、操作及兼容规则见 [`docs/COMMON_METRICS.md`](docs/COMMON_METRICS.md)。`common_metrics.py` 负责计算，`gui/diagnostic_common_metrics.py` 提供固定手算/生成/集成检查，已接入 reliability-smoke。个体算法为 `individual-0.3.0`；档案/方案 schema 未变，旧方案只补新增字段的安全 None/False 缺省。
+
+- 可选瞳孔预处理仅在质量页显式应用：默认关闭速度 MAD 拒绝、眨眼 / 丢失 padding 和 pupil 插值；PCHIP 仅在四个邻近有效锚点和连续时间支持成立、且缺口仍符合现有限制时使用。短遮罩缺口可能被插值，但源值、来源有效性、逐行遮罩旗标和替代值 provenance 分开保留。gaze 不变；详见 [`docs/PREPROCESSING_OPTIONS.md`](docs/PREPROCESSING_OPTIONS.md)。旧 `.pyeplan` v1 加入新字段的安全默认；没有更改数据或 `.pyea` schema。固定诊断已接入 reliability-smoke；此前源码检查已通过，本次发布检查以输出记录为准。
 
 - GUI 七步工作流：导入/映射、质量与处理、指标、群体上下文、统计设计、运行、结果与追溯。支持数据质量门控、个体/群体/高级信号分析、统计、图表和 CSV/XLSX/PDF 等导出。
 - `.pyeplan` 保存分析设置，排除输入数据与结果；`.pyea` 保存 full/results_only 运行档案。关闭窗口会提醒归档未保存运行。
