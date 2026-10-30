@@ -1,3 +1,10 @@
+### 2026-10-30 — 0.9.9: metric catalog UI and local delivery inputs
+
+- Updated the metric-selection catalogue for readable module choices, simplified-Chinese built-in theme labels/descriptions, a compact searchable list with right-side parameter help, and an explicit localized preset-difference dialog. Preset IDs/category keys, selection availability, algorithms, caches, data, archive and plan contracts are unchanged.
+- Synchronized APP_VERSION, deployment/release/handoff documentation, both resource-index application identities, and the license source-manifest application version. Recomputed the indexed source-manifest.json SHA-256. The illustrated guide remains content version 0.9.3; no dependency was added.
+- The requested delivery is local only; the new EXE will be copied to C:/Users/DELL/Desktop/APP/PYeyedata-0.9.9.exe, preserving the prior version and unrelated files. No remote push or GitHub publication is included.
+- This entry records build inputs before release.cmd. Actual source/frozen diagnostics, native-component reconciliation, PE identity, exact commit and EXE SHA-256 are authoritative in the output release-info.json; this entry does not preclaim those results. Real-device, clean-host and native DPI validation are not asserted.
+
 ### 2026-10-30 — 0.9.8: Windows EXE delivery inputs
 
 - Consolidated the startup Splash, 10 statistical presets and optional pupil preprocessing below into application 0.9.8. Synchronized deployment/release/handoff identities, resource-index application identities and license source-manifest identity with its indexed SHA-256. The illustrated guide remains content version 0.9.3; dependencies and data/archive/plan schemas are unchanged.

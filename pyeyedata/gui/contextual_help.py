@@ -13,10 +13,12 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QFormLayout,
+    QHeaderView,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPlainTextEdit,
     QTreeWidget,
     QWidget,
 )
@@ -55,9 +57,8 @@ class ContextualHelpController(QObject):
     they do not rescan the page.
     """
 
-    def __init__(self, target: QLabel, page_stack: Any) -> None:
+    def __init__(self, target: QLabel | QPlainTextEdit, page_stack: Any) -> None:
         super().__init__(target)
-        self._target = target
         self._page_stack = page_stack
         self._contexts: WeakKeyDictionary[QWidget, _HelpContext] = WeakKeyDictionary()
         self._attached: WeakSet[QWidget] = WeakSet()
@@ -65,9 +66,15 @@ class ContextualHelpController(QObject):
         self._connected_views: dict[int, tuple[ReferenceType[QAbstractItemView], QObject, Any]] = {}
         self._combo_view_owners: WeakKeyDictionary[QAbstractItemView, ReferenceType[QComboBox]] = WeakKeyDictionary()
         self._indexed_layouts: WeakSet[Any] = WeakSet()
-        self._default_text = target.text()
-        target.setTextFormat(Qt.TextFormat.PlainText)
-        target.setWordWrap(True)
+        if isinstance(target, QPlainTextEdit):
+            self._read_target_text = target.toPlainText
+            self._write_target_text = target.setPlainText
+        else:
+            self._read_target_text = target.text
+            self._write_target_text = target.setText
+            target.setTextFormat(Qt.TextFormat.PlainText)
+            target.setWordWrap(True)
+        self._default_text = self._read_target_text()
         for index in range(page_stack.count()):
             self._register_subtree(page_stack.widget(index))
         page_stack.currentChanged.connect(self._on_page_changed)
@@ -75,14 +82,18 @@ class ContextualHelpController(QObject):
     def set_default_text(self, text: str) -> None:
         """Set the current page's fallback and clear help from the old page."""
         self._default_text = str(text)
-        self._target.setText(self._default_text)
+        self._write_target_text(self._default_text)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
         if self._is_live_widget(watched):
+            if self._is_header_interaction_target(watched):
+                return False
             event_type = event.type()
             if event_type in (QEvent.Type.FocusIn, QEvent.Type.MouseButtonPress):
+                if isinstance(watched, QAbstractButton) and watched.property("preserveContextHelp"):
+                    return False
                 context = self._context_for_event_target(watched, event)
-                self._target.setText(self._format(context) if context is not None else self._default_text)
+                self._write_target_text(self._format(context) if context is not None else self._default_text)
             elif event_type == QEvent.Type.ChildAdded:
                 # ChildAdded fires before QWidget construction is complete, so
                 # defer and resolve newly constructed direct children from the
@@ -109,7 +120,7 @@ class ContextualHelpController(QObject):
     def _on_page_changed(self, _index: int) -> None:
         if not self._is_live_qobject(self) or not self._is_live_widget(self._page_stack):
             return
-        self._target.setText(self._default_text)
+        self._write_target_text(self._default_text)
         page = self._page_stack.currentWidget()
         if page is not None:
             self._register_subtree(page)
@@ -194,7 +205,7 @@ class ContextualHelpController(QObject):
                 self._index_layout(layout)
 
     def _attach(self, widget: QWidget) -> None:
-        if not self._is_live_widget(widget):
+        if not self._is_live_widget(widget) or self._is_header_interaction_target(widget):
             return
         try:
             if widget not in self._attached:
@@ -216,7 +227,7 @@ class ContextualHelpController(QObject):
             return
 
     def _connect_view_selection(self, view: QAbstractItemView) -> None:
-        if not self._is_live_widget(view):
+        if not self._is_live_widget(view) or isinstance(view, QHeaderView):
             return
         try:
             selection_model = view.selectionModel()
@@ -274,11 +285,11 @@ class ContextualHelpController(QObject):
                 return
             combo_context = self._combo_context_for_view(view)
             if combo_context is not None:
-                self._target.setText(self._format(combo_context))
+                self._write_target_text(self._format(combo_context))
                 return
             context = self._context_for_view_index(view, index)
             if context is not None:
-                self._target.setText(self._format(context))
+                self._write_target_text(self._format(context))
         except (RuntimeError, ReferenceError):
             return
 
@@ -420,10 +431,21 @@ class ContextualHelpController(QObject):
     def _find_item_view(widget: QWidget) -> QAbstractItemView | None:
         current: QWidget | None = widget
         while current is not None:
+            if isinstance(current, QHeaderView):
+                return None
             if isinstance(current, QAbstractItemView):
                 return current
             current = current.parentWidget()
         return None
+
+    @staticmethod
+    def _is_header_interaction_target(widget: QWidget) -> bool:
+        current: QWidget | None = widget
+        while current is not None:
+            if isinstance(current, QHeaderView):
+                return True
+            current = current.parentWidget()
+        return False
 
     def _context_for_view(self, view: QAbstractItemView, event: QEvent) -> _HelpContext | None:
         model = view.model()
@@ -455,11 +477,18 @@ class ContextualHelpController(QObject):
         # QTreeWidget catalogue tooltips describe methods. DataFrame table
         # tooltips include the underlying cell value, which must stay out of help.
         item = view.itemAt(pos) if pos is not None and hasattr(view, "itemAt") else None
+        if item is None and isinstance(view, QTreeWidget):
+            item = view.itemFromIndex(index)
         if item is not None and hasattr(item, "toolTip"):
             if isinstance(view, QTreeWidget):
-                description = str(item.toolTip(column) or item.toolTip(0) or "").strip()
-                if item.text(0).strip():
-                    label = item.text(0).strip()
+                row_context = item.data(0, Qt.ItemDataRole.UserRole + 4)
+                if isinstance(row_context, str) and row_context.strip():
+                    label = item.text(1).strip() or item.text(0).strip()
+                    description = row_context.strip()
+                else:
+                    description = str(item.toolTip(column) or item.toolTip(0) or "").strip()
+                    if item.text(0).strip():
+                        label = item.text(0).strip()
             else:
                 description = str(item.toolTip() or "").strip()
                 if item.text().strip():

@@ -17,7 +17,7 @@ from typing import Any, Iterator, Mapping
 import numpy as np
 import pandas as pd
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, QTimer, QUrl, QSignalBlocker, Signal, Slot
-from PySide6.QtGui import QAction, QDesktopServices
+from PySide6.QtGui import QAction, QDesktopServices, QTextOption
 from PySide6.QtWidgets import (
     QGroupBox,
     QDialog,
@@ -783,10 +783,15 @@ class MainWindow(QMainWindow):
         help_panel = QGroupBox("参数说明", workspace)
         help_panel.setMinimumWidth(220)
         help_layout = QVBoxLayout(help_panel)
-        self.help_text = QLabel("指标参数和适用条件按当前方法显示。\n\n前置检查会执行本次数据所需的共享预处理，再核对方法条件；它不会计算所选指标或统计结果，也不会认证设备。", help_panel)
-        self.help_text.setWordWrap(True)
-        self.help_text.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        help_layout.addWidget(self.help_text)
+        self.help_text = QPlainTextEdit(help_panel)
+        self.help_text.setObjectName("contextualHelpText")
+        self.help_text.setPlainText("指标参数和适用条件按当前方法显示。\n\n前置检查会执行本次数据所需的共享预处理，再核对方法条件；它不会计算所选指标或统计结果，也不会认证设备。")
+        self.help_text.setReadOnly(True)
+        self.help_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.help_text.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.help_text.setMinimumWidth(0)
+        self.help_text.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        help_layout.addWidget(self.help_text, 1)
 
         workspace.addWidget(self.step_list)
         workspace.addWidget(self.pages)
@@ -1066,9 +1071,6 @@ class MainWindow(QMainWindow):
         self.metrics_page.edit_requirements_requested.connect(self._on_edit_requirements)
         self.group_page.configuration_changed.connect(self._on_group_configuration_changed)
         self.group_page.scope_changed.connect(self._on_group_scope_changed)
-        self.metrics_page.parameter_error_button.clicked.connect(
-            lambda: self._activate_parameter_error_page("metrics")
-        )
         self.quality_page.parameter_error_button.clicked.connect(
             lambda: self._activate_parameter_error_page("quality")
         )

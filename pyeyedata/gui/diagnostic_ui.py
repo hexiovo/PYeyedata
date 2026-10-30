@@ -31,14 +31,14 @@ def run_ui_diagnostics(app: Any, window: Any) -> dict[str, Any]:
         window.log_view.isReadOnly() and window.log_view.maximumBlockCount() == 3000,
     )
 
-    original_help = window.help_text.text()
+    original_help = window.help_text.toPlainText()
     controller = window.contextual_help
     precision = window.import_page.coordinate.precision
     original_focus = app.focusWidget()
     original_precision = precision.value()
     focus_event = QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.OtherFocusReason)
     controller.eventFilter(precision, focus_event)
-    precision_help = window.help_text.text()
+    precision_help = window.help_text.toPlainText()
     record(
         "time_precision_help_is_field_specific",
         "时间精度（秒）" in precision_help and "不是采样率或采样间隔" in precision_help,
@@ -55,7 +55,7 @@ def run_ui_diagnostics(app: Any, window: Any) -> dict[str, Any]:
     controller.eventFilter(precision, click_event)
     record(
         "mouse_click_help_uses_same_parameter_context",
-        "时间精度（秒）" in window.help_text.text(),
+        "时间精度（秒）" in window.help_text.toPlainText(),
     )
     record("help_does_not_steal_focus", app.focusWidget() is original_focus)
 
@@ -66,7 +66,7 @@ def run_ui_diagnostics(app: Any, window: Any) -> dict[str, Any]:
         controller.eventFilter(editor, focus_event)
         name = editor.spec.name
         description = editor.spec.description
-        current_help = window.help_text.text()
+        current_help = window.help_text.toPlainText()
         record(
             "typed_parameter_help_uses_schema_description",
             name.rsplit(".", 1)[-1] in current_help
@@ -123,7 +123,7 @@ def run_ui_diagnostics(app: Any, window: Any) -> dict[str, Any]:
         app.processEvents()
         record(
             "keyboard_table_navigation_refreshes_column_help",
-            view.currentIndex().column() == 1 and "diagnostic_second" in window.help_text.text(),
+            view.currentIndex().column() == 1 and "diagnostic_second" in window.help_text.toPlainText(),
         )
 
         dynamic_host = QWidget(window.data_page)
@@ -137,7 +137,7 @@ def run_ui_diagnostics(app: Any, window: Any) -> dict[str, Any]:
         app.processEvents()
         record(
             "dynamically_added_form_field_gets_label_help",
-            "动态参数诊断" in window.help_text.text(),
+            "动态参数诊断" in window.help_text.toPlainText(),
         )
         window.data_page.layout().removeWidget(dynamic_host)
         dynamic_host.setParent(None)

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QTabWidget,
     QTextBrowser,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -41,6 +43,7 @@ from .models import SelectionSpec
 from .presets import (
     MODULES,
     PresetDefinition,
+    _display_category,
     availability_records,
     builtin_presets,
     catalogue_for_module,
@@ -227,6 +230,7 @@ class MetricReasonDialog(QDialog):
             ("算法版本", "algorithm_version"),
             ("所需字段", "requires_fields"),
             ("所需元数据", "requires_metadata"),
+            ("参考来源", "reference_ids"),
             ("验证状态", "validation_status"),
             ("方法等级", "tier"),
             ("设备要求", "device_requirement"),
@@ -252,7 +256,7 @@ class MetricReasonDialog(QDialog):
         lines.extend([
             "",
             "前检满足只表示输入条件可尝试；运行仍可能返回 NA、partial 或运行时数值支持不足。",
-            "筛选和搜索只改变列表视图，不更改已选 ID。",
+            "筛选和搜索只改变列表视图，不更改已选指标。不可用项的状态和条件原因在本说明区显示。",
         ])
         return "\n".join(lines)
 
@@ -279,7 +283,30 @@ class MetricCatalogueWidget(QWidget):
         self._rebuilding = False
 
         layout = QVBoxLayout(self)
-        controls = QHBoxLayout()
+        filter_header = QHBoxLayout()
+        self.filter_toggle = QToolButton(self)
+        self.filter_toggle.setText("搜索与筛选")
+        self.filter_toggle.setAccessibleName("展开或收起搜索与筛选")
+        self.filter_toggle.setToolTip("展开搜索、分类和状态筛选条件。")
+        self.filter_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.filter_toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self.filter_toggle.setCheckable(True)
+        self.filter_toggle.setChecked(False)
+        filter_header.addWidget(self.filter_toggle)
+        self.filter_summary = QLabel(self)
+        self.filter_summary.setWordWrap(True)
+        self.filter_summary.setMinimumWidth(0)
+        self.filter_summary.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        filter_header.addWidget(self.filter_summary, 1)
+        self.clear_filters_button = QPushButton("清除筛选", self)
+        self.clear_filters_button.setAccessibleName("清除当前搜索和分类、状态筛选")
+        self.clear_filters_button.setToolTip("清除搜索、分类和状态条件；不更改已选指标或研究方法设置。")
+        filter_header.addWidget(self.clear_filters_button)
+        layout.addLayout(filter_header)
+
+        self.filter_panel = QWidget(self)
+        controls = QHBoxLayout(self.filter_panel)
+        controls.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit(self)
         self.search.setPlaceholderText("搜索中文标签、英文说明或 metric_id")
         self.search.setClearButtonEnabled(True)
@@ -293,32 +320,37 @@ class MetricCatalogueWidget(QWidget):
         controls.addWidget(self.category_filter, 1)
         controls.addWidget(self.state_filter, 1)
         controls.addWidget(self.experimental_toggle)
-        layout.addLayout(controls)
+        self.filter_panel.hide()
+        layout.addWidget(self.filter_panel)
 
         self.tree = QTreeWidget(self)
-        self.tree.setColumnCount(4)
-        self.tree.setHeaderLabels(["指标（metric_id）", "用途 / 计算摘要", "状态", "选择 / 原因"])
+        self.tree.setColumnCount(2)
+        self.tree.setHeaderLabels(["选择", "指标名称"])
         self.tree.setRootIsDecorated(True)
+        self.tree.setTreePosition(1)
         self.tree.setAlternatingRowColors(True)
-        self.tree.setUniformRowHeights(False)
+        self.tree.setUniformRowHeights(True)
         self.tree.setSortingEnabled(False)
-        self.tree.setColumnWidth(0, 360)
-        self.tree.setColumnWidth(1, 420)
-        self.tree.setColumnWidth(2, 180)
-        self.tree.setColumnWidth(3, 150)
+        self.tree.setTextElideMode(Qt.TextElideMode.ElideRight)
+        header = self.tree.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.tree.setColumnWidth(0, 48)
+        self.tree.setColumnWidth(1, 360)
         layout.addWidget(self.tree, 1)
-        self.detail = QTextBrowser(self)
-        self.detail.setMaximumHeight(115)
-        self.detail.setPlaceholderText("选中目录项后显示描述、条件字段和证据引用。")
-        layout.addWidget(self.detail)
 
         self.search.textChanged.connect(self._refresh_visibility)
         self.category_filter.currentIndexChanged.connect(self._refresh_visibility)
         self.state_filter.currentIndexChanged.connect(self._refresh_visibility)
         self.experimental_toggle.toggled.connect(self._on_experimental_toggled)
+        self.filter_toggle.toggled.connect(self.filter_panel.setVisible)
+        self.filter_toggle.toggled.connect(
+            lambda expanded: self.filter_toggle.setArrowType(
+                Qt.ArrowType.UpArrow if expanded else Qt.ArrowType.DownArrow
+            )
+        )
+        self.clear_filters_button.clicked.connect(self._clear_filters)
         self.tree.itemChanged.connect(self._on_item_changed)
-        self.tree.itemSelectionChanged.connect(self._update_detail)
-        self.tree.itemActivated.connect(self._on_item_activated)
         if schema is not None:
             self.set_schema(schema)
 
@@ -466,10 +498,11 @@ class MetricCatalogueWidget(QWidget):
         categories = sorted({str(entry.get("category")) for entry in self._catalogue
                              if entry.get("category") not in (None, "")})
         for category in categories:
-            self.category_filter.addItem(category, category)
+            self.category_filter.addItem(_display_category(category), category)
         index = self.category_filter.findData(current)
         self.category_filter.setCurrentIndex(index if index >= 0 else 0)
         self.category_filter.blockSignals(False)
+        self._update_filter_summary()
 
     def _entry_state(self, entry: Mapping[str, Any]) -> tuple[bool, str, QColor, list[dict[str, Any]], str]:
         metric_id = str(entry.get("metric_id", ""))
@@ -481,7 +514,10 @@ class MetricCatalogueWidget(QWidget):
         status, color = _availability_text(entry, rows)
         if entry.get("experimental") and not self._allow_experimental[self._module]:
             status, color = "需显式启用研究方法", QColor("#7a8492")
-            reason = "这是目录标记的研究/实验方法；启用复选框后仍会保持琥珀色条件状态，不表示设备验证。"
+            reason = (
+                "这是研究/实验方法。展开“搜索与筛选”并勾选“启用研究/实验方法”后才可选择；"
+                "启用仍不代表设备验证。"
+            )
         elif entry.get("experimental") or str(entry.get("tier", "")).upper() == "R2":
             status, color = "研究方法 · 条件状态", QColor("#b7791f")
         return selectable, status, color, rows, reason
@@ -515,39 +551,45 @@ class MetricCatalogueWidget(QWidget):
             parent_id = parent_for[metric_id]
             parent_item = item_for.get(parent_id) if parent_id else None
             label = _display(entry.get("label")) or metric_id
-            title = f"{label} ({metric_id})"
-            summary = _display(entry.get("description") or entry.get("note") or entry.get("unit") or "")
-            item = QTreeWidgetItem(parent_item or self.tree, [title, summary, "", ""])
-            selectable, status, color, rows, reason = self._entry_state(entry)
+            item = QTreeWidgetItem(parent_item or self.tree, ["", label])
+            selectable, status, _color, rows, reason = self._entry_state(entry)
+            if not selectable:
+                item.setForeground(1, QBrush(QColor("#626b78")))
             item.setData(0, Qt.ItemDataRole.UserRole, metric_id)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, dict(entry))
             item.setData(0, Qt.ItemDataRole.UserRole + 2, selectable)
             item.setData(0, Qt.ItemDataRole.UserRole + 3, rows)
-            item.setText(2, status)
-            item.setForeground(2, QBrush(color))
+            item.setData(1, Qt.ItemDataRole.AccessibleTextRole,
+                         f"{label}；指标 ID：{metric_id}；当前状态：{status}")
             tooltip = "\n".join(filter(None, [
-                f"ID: {metric_id}",
-                f"Category: {_display(entry.get('category'))}",
-                f"Unit: {_display(entry.get('unit'))}",
-                f"Description: {_display(entry.get('description') or entry.get('note'))}",
-                f"Reason: {reason}" if not selectable else "",
+                f"指标 ID：{metric_id}",
+                f"分类：{_display(entry.get('category'))}",
+                f"单位：{_display(entry.get('unit'))}",
+                f"用途：{_display(entry.get('description') or entry.get('note'))}",
+                f"当前条件：{reason}" if not selectable else "",
             ]))
-            for column in range(4):
+            detail_lines = [
+                f"指标：{label}",
+                f"指标 ID：{metric_id}",
+                f"模块：{_MODULE_LABELS[self._module]}",
+                f"当前状态：{status}",
+                "",
+                MetricReasonDialog._format_details(entry, self._module, rows),
+            ]
+            if not selectable:
+                detail_lines.extend(["", "当前不可用原因：", reason])
+            detail_text = "\n".join(detail_lines)
+            item.setData(0, Qt.ItemDataRole.UserRole + 4, detail_text)
+            for column in range(2):
                 item.setToolTip(column, tooltip)
             flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
             if selectable:
                 flags |= Qt.ItemFlag.ItemIsUserCheckable
                 item.setFlags(flags)
-                item.setCheckState(3, Qt.CheckState.Checked if metric_id in self._selected[self._module]
+                item.setCheckState(0, Qt.CheckState.Checked if metric_id in self._selected[self._module]
                                    else Qt.CheckState.Unchecked)
             else:
                 item.setFlags(flags)
-                button = QPushButton("查看原因", self.tree)
-                button.setAccessibleName(f"查看 {metric_id} 的条件原因")
-                button.setToolTip(reason or "当前前检条件不满足")
-                button.clicked.connect(lambda _checked=False, e=dict(entry), r=rows:
-                                        self._show_reason(e, r))
-                self.tree.setItemWidget(item, 3, button)
             item_for[metric_id] = item
             if parent_id:
                 parent_item = item_for.get(parent_id)
@@ -556,7 +598,6 @@ class MetricCatalogueWidget(QWidget):
         self.tree.blockSignals(False)
         self._rebuilding = False
         self._refresh_visibility()
-        self._update_detail()
 
     def _refresh_visibility(self) -> None:
         if not hasattr(self, "tree"):
@@ -602,17 +643,18 @@ class MetricCatalogueWidget(QWidget):
             visible = row_matches(item)
             descendant = update_branch(item)
             item.setHidden(not visible and not descendant)
+        self._update_filter_summary()
 
     def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
-        if self._rebuilding or column != 3:
+        if self._rebuilding or column != 0:
             return
         metric_id = item.data(0, Qt.ItemDataRole.UserRole)
         if not metric_id:
             return
-        if item.checkState(3) == Qt.CheckState.Checked:
+        if item.checkState(0) == Qt.CheckState.Checked:
             if not bool(item.data(0, Qt.ItemDataRole.UserRole + 2)):
                 self.tree.blockSignals(True)
-                item.setCheckState(3, Qt.CheckState.Unchecked)
+                item.setCheckState(0, Qt.CheckState.Unchecked)
                 self.tree.blockSignals(False)
                 self._show_reason(item.data(0, Qt.ItemDataRole.UserRole + 1),
                                   item.data(0, Qt.ItemDataRole.UserRole + 3) or [])
@@ -637,61 +679,133 @@ class MetricCatalogueWidget(QWidget):
         dialog.edit_requested.connect(self.edit_requirements_requested.emit)
         dialog.exec()
 
-    def _update_detail(self) -> None:
-        items = self.tree.selectedItems() if hasattr(self, "tree") else []
-        if not items:
-            self.detail.clear()
+    def _clear_filters(self) -> None:
+        self.search.blockSignals(True)
+        self.category_filter.blockSignals(True)
+        self.state_filter.blockSignals(True)
+        self.search.clear()
+        for combo in (self.category_filter, self.state_filter):
+            index = combo.findData("all")
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        self.search.blockSignals(False)
+        self.category_filter.blockSignals(False)
+        self.state_filter.blockSignals(False)
+        self._refresh_visibility()
+
+    def _update_filter_summary(self) -> None:
+        if not hasattr(self, "filter_summary"):
             return
-        item = items[0]
-        entry = item.data(0, Qt.ItemDataRole.UserRole + 1) or {}
-        metric_id = item.data(0, Qt.ItemDataRole.UserRole)
-        rows = item.data(0, Qt.ItemDataRole.UserRole + 3) or []
-        lines = [f"{_display(entry.get('label'))} ({metric_id})"]
-        for key, title in (("description", "说明"), ("note", "备注"), ("requires_fields", "所需字段"),
-                           ("requires_metadata", "所需元数据"), ("reference_ids", "参考来源")):
-            value = entry.get(key)
-            if value not in (None, "", [], ()):
-                lines.append(f"{title}：{_display(value)}")
-        if entry.get("device_validated") is False:
-            lines.append("设备验证状态：未验证")
-        if rows:
-            lines.append(f"前检条件行：{len(rows)}（按 scope/stream 保留，灰色项可打开完整原因）")
-        self.detail.setPlainText("\n".join(lines))
+        active: list[str] = []
+        query = self.search.text().strip()
+        display_query = ""
+        if query:
+            display_query = query if len(query) <= 24 else query[:23] + "…"
+            active.append(f"搜索“{display_query}”")
+        category = self.category_filter.currentData()
+        if category not in (None, "all"):
+            active.append(f"分类：{self.category_filter.currentText()}")
+        state = self.state_filter.currentData()
+        if state not in (None, "all"):
+            active.append(f"状态：{self.state_filter.currentText()}")
+        if self.experimental_toggle.isChecked():
+            active.append("研究/实验方法已启用")
+        self.filter_summary.setText("当前筛选：" + ("；".join(active) if active else "无"))
+        full_summary = self.filter_summary.text()
+        if query and query != display_query:
+            full_summary += f"\n完整搜索文字：{query}"
+        self.filter_summary.setToolTip(full_summary)
+        has_filters = bool(query or category not in (None, "all") or state not in (None, "all"))
+        self.clear_filters_button.setEnabled(has_filters)
 
 
 class _PresetDiffDialog(QDialog):
     def __init__(self, preset: PresetDefinition, resolution: Any,
-                 diff: Mapping[str, Mapping[str, Sequence[str]]], parent: QWidget | None = None) -> None:
+                 diff: Mapping[str, Mapping[str, Sequence[str]]], parent: QWidget | None = None,
+                 schema: Mapping[str, Any] | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("预设差异确认")
-        self.setMinimumSize(580, 380)
+        self.setWindowTitle("核对预设变更")
+        self.setMinimumSize(650, 420)
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"应用“{preset.label}”前核对差异。", self))
+        summary = QLabel(
+            f"应用“{preset.label}”前请核对各模块的指标变化。目标模块的选择和参数只会在确认后更新。",
+            self,
+        )
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
         if resolution.incompatible_schema:
-            layout.addWidget(QLabel("预设保存时的 schema 版本不同；只恢复当前 schema 仍识别且可用的 ID。", self))
-        body = QTextBrowser(self)
-        lines: list[str] = []
+            layout.addWidget(QLabel("预设保存时的目录版本不同；只恢复当前目录仍识别且可用的指标。", self))
+        tree = QTreeWidget(self)
+        tree.setColumnCount(3)
+        tree.setHeaderLabels(["变化", "指标名称", "指标 ID"])
+        tree.setRootIsDecorated(True)
+        tree.setAlternatingRowColors(True)
+        tree.setUniformRowHeights(True)
+        tree.setTextElideMode(Qt.TextElideMode.ElideRight)
+        tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        tree.setColumnWidth(0, 116)
+        tree.setColumnWidth(2, 210)
+        catalogue = catalogue_index(schema or {})
         for module in MODULES:
             if module not in preset.target_modules:
                 continue
             values = diff.get(module, {})
-            lines.append(f"{_MODULE_LABELS[module]}：")
-            for key, title in (("added", "新增"), ("removed", "移除"), ("retained", "保留")):
-                ids = tuple(values.get(key, ()))
-                lines.append(f"  {title} ({len(ids)}): " + (", ".join(ids) if ids else "无"))
-            blocked = tuple(resolution.blocked.get(module, ()))
-            unknown = tuple(resolution.unknown.get(module, ()))
-            lines.append(f"  当前不可用，未勾选 ({len(blocked)}): " + (", ".join(blocked) if blocked else "无"))
-            lines.append(f"  当前 schema 未识别 ({len(unknown)}): " + (", ".join(unknown) if unknown else "无"))
-        changed_parameters = len(resolution.parameters)
-        if changed_parameters:
-            lines.extend(["", f"预设带有 {changed_parameters} 个 typed 参数值；空值、False、enum 值和矩阵会按其类型恢复。"])
-        lines.extend(["", "应用后会请求新前检；前检状态不会被预设或筛选覆盖。"])
-        body.setPlainText("\n".join(lines))
-        layout.addWidget(body, 1)
+            module_item = QTreeWidgetItem(tree, [_MODULE_LABELS[module], "", ""])
+            module_item.setFirstColumnSpanned(True)
+            categories = (
+                ("added", "新增"),
+                ("removed", "移除"),
+                ("retained", "保留"),
+                ("blocked", "当前不可用，未勾选"),
+                ("unknown", "当前目录未识别"),
+            )
+            for key, title in categories:
+                ids = tuple(
+                    values.get(key, ()) if key in values
+                    else resolution.blocked.get(module, ()) if key == "blocked"
+                    else resolution.unknown.get(module, ())
+                )
+                category_item = QTreeWidgetItem(module_item, [f"{title}（{len(ids)}）", "", ""])
+                category_item.setFirstColumnSpanned(True)
+                category_item.setExpanded(True)
+                if not ids:
+                    QTreeWidgetItem(category_item, ["", "无", ""])
+                    continue
+                for metric_id in ids:
+                    entry = catalogue[module].get(metric_id)
+                    label = _display(entry.get("label")) if entry is not None else "未识别指标"
+                    metric_item = QTreeWidgetItem(category_item, ["", label or "未命名指标", metric_id])
+                    if entry is not None:
+                        metric_item.setToolTip(1, _display(entry.get("description") or entry.get("note")))
+                    metric_item.setToolTip(2, f"指标 ID：{metric_id}")
+            module_item.setExpanded(True)
+        layout.addWidget(tree, 1)
+        changed_parameters = sum(
+            len(values) for values in resolution.parameters.values() if isinstance(values, Mapping)
+        )
+        parameter_note = (
+            f"此预设包含 {changed_parameters} 项参数设置；空值、布尔值 False、枚举和矩阵按原类型恢复。"
+            if changed_parameters else "此预设不包含参数设置。"
+        )
+        footer = QLabel(
+            f"{parameter_note}\n应用后会请求新的前检；预设不会覆盖当前前检状态。",
+            self,
+        )
+        footer.setWordWrap(True)
+        layout.addWidget(footer)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel,
                                         parent=self)
-        self.buttons.accepted.connect(self.accept)
+        apply_button = self.buttons.button(QDialogButtonBox.StandardButton.Apply)
+        apply_button.setText("应用预设")
+        apply_button.setAccessibleName("确认应用预设")
+        apply_button.setProperty("preserveContextHelp", True)
+        apply_button.clicked.connect(lambda _checked=False: self.accept())
+        cancel_button = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        cancel_button.setText("取消")
+        cancel_button.setAccessibleName("取消应用预设")
+        cancel_button.setProperty("preserveContextHelp", True)
         self.buttons.rejected.connect(self.reject)
         layout.addWidget(self.buttons)
 
@@ -727,6 +841,15 @@ class MetricsPage(QWidget):
         self.module_combo = QComboBox(self)
         for module in MODULES:
             self.module_combo.addItem(_MODULE_LABELS[module], module)
+        self.module_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        module_text_width = max(
+            self.module_combo.fontMetrics().horizontalAdvance(self.module_combo.itemText(index))
+            for index in range(self.module_combo.count())
+        )
+        module_width = module_text_width + 48
+        self.module_combo.setMinimumWidth(module_width)
+        self.module_combo.view().setMinimumWidth(module_width)
+        self.module_combo.setAccessibleName("分析模块")
         self.run_module = QCheckBox("运行此模块", self)
         self.run_module.setToolTip("模块开关与所选 ID 分开；显式运行空列表会保留后端空请求契约。")
         self.restore_button = QPushButton("恢复本模块默认", self)
@@ -742,18 +865,12 @@ class MetricsPage(QWidget):
         self.parameter_error.setWordWrap(True)
         self.parameter_error.setStyleSheet("QLabel { color: #8b1e1e; background: #fff0f0; padding: 6px; }")
         self.parameter_error.hide()
-        self.parameter_error_button = QPushButton("定位并修改", self)
-        self.parameter_error_button.setEnabled(False)
-        self.parameter_error_button.clicked.connect(self._focus_parameter_error)
-        error_row = QHBoxLayout()
-        error_row.addWidget(self.parameter_error, 1)
-        error_row.addWidget(self.parameter_error_button)
-        root.addLayout(error_row)
+        root.addWidget(self.parameter_error)
 
         self.tabs = QTabWidget(self)
         self.tabs.addTab(self.catalogue, "指标目录")
         self.parameter_tabs = QTabWidget(self.tabs)
-        self.tabs.addTab(self.parameter_tabs, "Typed 参数")
+        self.tabs.addTab(self.parameter_tabs, "参数设置")
         self.preset_tab = QWidget(self.tabs)
         self._build_preset_tab()
         self.tabs.addTab(self.preset_tab, "预设")
@@ -881,19 +998,19 @@ class MetricsPage(QWidget):
             range_text = f"（{hint}）" if hint else ""
             location = f"{_MODULE_LABELS[module]} / {field}{range_text}"
             self.parameter_error.setText(f"参数错误：{location}：{reason}。请按显示的类型、单位和范围修正。")
+            self.parameter_error.setProperty("contextHelp", self.parameter_error.text())
             self._parameter_error_location = (module, field)
-            self.parameter_error_button.setEnabled(True)
         else:
             self.parameter_error.setText(f"参数错误：{reason}。请检查当前方法的类型、单位和范围。")
+            self.parameter_error.setProperty("contextHelp", self.parameter_error.text())
             self._parameter_error_location = None
-            self.parameter_error_button.setEnabled(False)
         self.parameter_error.show()
 
     def _clear_parameter_error(self) -> None:
         self._parameter_error_location = None
         self.parameter_error.clear()
+        self.parameter_error.setProperty("contextHelp", "")
         self.parameter_error.hide()
-        self.parameter_error_button.setEnabled(False)
 
     def _focus_parameter_error(self) -> None:
         if self._parameter_error_location is None:
@@ -1192,7 +1309,10 @@ class MetricsPage(QWidget):
         controls.addWidget(self.save_preset_button)
         controls.addWidget(self.load_preset_button)
         layout.addLayout(controls)
-        self.preset_description = QLabel("预设应用前会显示新增、移除、不可用和不兼容 ID。", self.preset_tab)
+        self.preset_description = QLabel(
+            "应用前可按模块核对指标名称、选择变化和当前不可用原因；确认后仅更新预设目标范围。",
+            self.preset_tab,
+        )
         self.preset_description.setWordWrap(True)
         layout.addWidget(self.preset_description)
         layout.addStretch(1)
@@ -1229,7 +1349,7 @@ class MetricsPage(QWidget):
             self._report_parameter_error(str(exc))
             return False
         diff = selection_diff(current, resolution.selections, preset.target_modules)
-        dialog = _PresetDiffDialog(preset, resolution, diff, self)
+        dialog = _PresetDiffDialog(preset, resolution, diff, self, schema=self._schema)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return False
         for module, parameters in prepared_parameters.items():

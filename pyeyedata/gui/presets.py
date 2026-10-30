@@ -13,14 +13,38 @@ from typing import Any, Mapping
 
 MODULES = ("individual", "group", "advanced")
 _MODULE_LABELS = {
-    "individual": "個體分析",
-    "group": "群體分析",
-    "advanced": "高級方法",
+    "individual": "个体分析",
+    "group": "群体分析",
+    "advanced": "高级方法",
+}
+_CATEGORY_LABELS = {
+    "quality": "数据质量",
+    "scanpath": "扫描路径",
+    "scanpath_selector": "扫描路径选择器",
+    "fixation": "注视",
+    "saccade": "眼跳",
+    "blink": "眨眼",
+    "aoi_fixation": "AOI 注视",
+    "aoi": "AOI 区域",
+    "reading": "阅读",
+    "group": "群体分析",
+    "microsaccade": "微眼跳",
+    "pursuit": "平滑追踪",
+    "pupil": "瞳孔",
+    "saccade.main_sequence": "眼跳主序",
+    "microsaccade.features": "微眼跳特征",
+    "pursuit.features": "追踪特征",
+    "pupil.spectral_power": "瞳孔频谱功率",
+    "blink.perclos": "P80 闭眼比例",
 }
 
 
 def schema_version(schema: Mapping[str, Any]) -> str:
     return str(schema.get("pipeline_schema_version") or schema.get("contract_version") or "unknown")
+
+
+def _display_category(category: str) -> str:
+    return _CATEGORY_LABELS.get(category, category)
 
 
 def catalogue_for_module(schema: Mapping[str, Any], module: str) -> list[dict[str, Any]]:
@@ -179,10 +203,12 @@ def builtin_presets(schema: Mapping[str, Any]) -> list[PresetDefinition]:
             if entry.get("category") not in (None, "")
         })
         for category in categories:
+            module_label = _MODULE_LABELS[module]
+            category_label = _display_category(category)
             result.append(PresetDefinition(
                 f"theme:{module}:{category}",
-                f"主題 · {_MODULE_LABELS[module]} · {category}",
-                f"只替換{_MODULE_LABELS[module]}中的“{category}”指标；其他面板保持原选择。",
+                f"主题 · {module_label} · {category_label}",
+                f"只替换{module_label}中的“{category_label}”指标；其他面板保持原选择。",
                 kind="theme",
                 schema_version=version,
                 target_modules=(module,),

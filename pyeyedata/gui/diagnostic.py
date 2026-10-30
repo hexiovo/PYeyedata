@@ -3345,6 +3345,15 @@ def run_diagnostic(config_path: str) -> int:
                     + ", ".join(str(item) for item in ui_evidence.get("failures", ()))
                 )
             evidence["main_window_ui_diagnostics"] = ui_evidence
+            from .diagnostic_catalog_ui import run_catalogue_ui_diagnostics
+
+            catalogue_ui_evidence = run_catalogue_ui_diagnostics(app, window, workspace)
+            if catalogue_ui_evidence.get("status") != "passed":
+                raise RuntimeError(
+                    "metric catalogue UI diagnostics failed: "
+                    + ", ".join(str(item) for item in catalogue_ui_evidence.get("failures", ()))
+                )
+            evidence["metric_catalogue_ui_diagnostics"] = catalogue_ui_evidence
             from .diagnostic_runtime import run_runtime_checks
             evidence["runtime_resolution"] = run_runtime_checks()
             _run_reliability_smoke(app, window, workspace, evidence)
