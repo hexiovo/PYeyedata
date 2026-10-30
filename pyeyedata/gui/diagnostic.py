@@ -3370,7 +3370,9 @@ def run_diagnostic(config_path: str) -> int:
         evidence["status"] = "pass"
     except Exception as exc:
         failure = exc
-        evidence["error"] = {"type": type(exc).__name__, "message": str(exc)}
+        import traceback
+        evidence["error"] = {"type": type(exc).__name__, "message": str(exc),
+                             "traceback": traceback.format_exc()}
     finally:
         try:
             if "window" in locals():

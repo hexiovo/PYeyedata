@@ -5,6 +5,7 @@
 - Local delivery targets C:/Users/DELL/Desktop/APP/PYeyedata-0.9.10.exe, preserving 0.9.9 and unrelated desktop files. All inputs are committed before release.cmd; no remote push or GitHub publication is included.
 - This entry records build inputs. Actual source/frozen diagnostics, embedded hashes, native notice reconciliation, PE version, exact commit and executable SHA-256 are authoritative in output release-info.json. Real-device, clean-host and native DPI validation are not asserted.
 - Initial frozen validation exposed an overbroad statsmodels.api probe absent from the bundle. The product uses statsmodels.formula.api for its mixed-model backend, which is present in the frozen archive; aligned the import probe to that actual consumer and added its mixedlm availability assertion plus a persisted environment report. Rebuilding from the corrected committed inputs; final release-info.json remains authoritative.
+- A subsequent source usability run hit an intermittent QSpacerItem/setMinimumWidth Qt error; the isolated formal-launcher rerun passed at C:/Users/DELL/AppData/Local/Temp/pyeyedata-usability-debug-f4bywadg/workspace/result.json. Diagnostic failures now preserve full tracebacks for investigation if it recurs. No Qt root-cause fix is asserted; a new complete release check is still required.
 
 ### 2026-10-31 — Unreleased: environment inspection and one-click dependency repair
 
