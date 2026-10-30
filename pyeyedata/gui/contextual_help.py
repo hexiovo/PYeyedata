@@ -86,10 +86,10 @@ class ContextualHelpController(QObject):
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt API
         if self._is_live_widget(watched):
-            if self._is_header_interaction_target(watched):
-                return False
             event_type = event.type()
             if event_type in (QEvent.Type.FocusIn, QEvent.Type.MouseButtonPress):
+                if self._is_header_interaction_target(watched):
+                    return False
                 if isinstance(watched, QAbstractButton) and watched.property("preserveContextHelp"):
                     return False
                 context = self._context_for_event_target(watched, event)
@@ -438,10 +438,10 @@ class ContextualHelpController(QObject):
             current = current.parentWidget()
         return None
 
-    @staticmethod
-    def _is_header_interaction_target(widget: QWidget) -> bool:
-        current: QWidget | None = widget
-        while current is not None:
+    @classmethod
+    def _is_header_interaction_target(cls, widget: QWidget) -> bool:
+        current: Any = widget
+        while cls._is_live_widget(current):
             if isinstance(current, QHeaderView):
                 return True
             current = current.parentWidget()

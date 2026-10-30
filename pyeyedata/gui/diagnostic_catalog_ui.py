@@ -10,7 +10,15 @@ from typing import Any
 import pandas as pd
 from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtGui import QFocusEvent, QTextOption
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QStackedWidget, QTreeWidgetItem
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QLabel,
+    QSpacerItem,
+    QStackedWidget,
+    QTreeWidgetItem,
+    QWidget,
+)
 
 from .contextual_help import ContextualHelpController
 from .metrics_page import MetricCatalogueWidget, MetricsPage, _PresetDiffDialog
@@ -64,6 +72,11 @@ def _click_active_dialog(app: Any, button: QDialogButtonBox.StandardButton) -> N
         dialog.buttons.button(button).click()
 
 
+class _WidgetWithSpacerParent(QWidget):
+    def parentWidget(self) -> QSpacerItem:  # noqa: N802 - Qt API
+        return QSpacerItem(4, 4)
+
+
 def run_catalogue_ui_diagnostics(app: Any, window: Any, workspace: Path) -> dict[str, Any]:
     """Check catalogue visibility, row help, filter persistence and preset commits."""
     checks: dict[str, Any] = {}
@@ -88,6 +101,15 @@ def run_catalogue_ui_diagnostics(app: Any, window: Any, workspace: Path) -> dict
     selected_entry = individual[0]
 
     catalogue = MetricCatalogueWidget(schema=schema, module="individual")
+    spacer_parent = _WidgetWithSpacerParent()
+    record(
+        "header_target_walk_stops_at_non_widget_ancestor",
+        not ContextualHelpController._is_header_interaction_target(spacer_parent),
+    )
+    record(
+        "header_target_walk_still_ignores_header_interactions",
+        ContextualHelpController._is_header_interaction_target(catalogue.tree.header()),
+    )
     selected_item = _find_item(catalogue.tree, selected_id)
     category = str(selected_entry.get("category") or "")
     record(
