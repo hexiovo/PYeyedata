@@ -268,7 +268,7 @@ def run_catalogue_ui_diagnostics(app: Any, window: Any, workspace: Path) -> dict
     page.deleteLater()
 
     original_step = window.step_list.currentRow()
-    original_module = metrics.module
+    original_module = metrics.catalogue.module
     original_tab = metrics.tabs.currentWidget()
     original_help = window.help_text.toPlainText()
     original_help_default = window.contextual_help._default_text
