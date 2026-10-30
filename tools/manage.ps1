@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateSet('Setup', 'Run', 'Check', 'Release')]
     [string]$Action = 'Setup',
